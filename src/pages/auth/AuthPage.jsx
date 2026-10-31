@@ -8,6 +8,7 @@ import AuthTabs from '../../components/auth/AuthTabs';
 import GoogleButton, { OrDivider } from '../../components/auth/GoogleButton';
 import Field from '../../components/common/Field';
 import Alert from '../../components/common/Alert';
+import Collapse from '../../components/common/Collapse';
 import { primaryButton, linkButton, heading, subheading } from '../../components/common/styles';
 
 const COPY = {
@@ -124,19 +125,17 @@ export default function AuthPage({ initialMode = 'login' }) {
       )}
 
       <form onSubmit={onSubmit} noValidate>
-        {mode === 'signup' && (
-          <div className="motion-safe:animate-rise">
-            <Field
-              ref={refs.name}
-              label="Full name"
-              autoComplete="name"
-              placeholder="Priya Sharma"
-              value={form.name}
-              onChange={update('name')}
-              error={errors.name}
-            />
-          </div>
-        )}
+        <Collapse open={mode === 'signup'}>
+          <Field
+            ref={refs.name}
+            label="Full name"
+            autoComplete="name"
+            placeholder="Priya Sharma"
+            value={form.name}
+            onChange={update('name')}
+            error={errors.name}
+          />
+        </Collapse>
         <Field
           ref={refs.email}
           label="Work email"
@@ -160,13 +159,13 @@ export default function AuthPage({ initialMode = 'login' }) {
           />
         )}
 
-        {mode === 'login' && (
-          <div className="-mt-1.5 mb-3.5 text-right">
+        <Collapse open={mode === 'login'}>
+          <div className="mb-3.5 text-right">
             <button type="button" className={linkButton} onClick={() => setMode('forgot')}>
               Forgot password?
             </button>
           </div>
-        )}
+        </Collapse>
 
         <button type="submit" className={`${primaryButton} mt-1.5`} disabled={busy}>
           {busy ? copy.busy : copy.submit}

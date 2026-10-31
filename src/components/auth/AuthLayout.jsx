@@ -4,9 +4,11 @@ import ThemeToggle from '../common/ThemeToggle';
 
 export default function AuthLayout({ top, children }) {
   return (
-    <div className="grid min-h-screen grid-cols-1 md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+    <div className="grid min-h-screen grid-cols-1 md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] md:items-start">
       <BrandPanel />
-      <main className="flex items-start justify-center px-6 py-8 md:pt-[clamp(3rem,8vh,5rem)] md:pb-12 overflow-y-auto">
+      {/* Pinned to a fixed distance from the top (not centered), so switching
+          between log in and sign up never shifts the tabs or the title. */}
+      <main className="flex justify-center px-6 py-10 md:min-h-screen md:pt-[max(48px,11vh)]">
         <div className="w-full max-w-[440px]">
           <div className="mb-6 flex items-center justify-between gap-3">
             {top ?? <span />}

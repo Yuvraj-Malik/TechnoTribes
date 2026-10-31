@@ -3,9 +3,9 @@
 /* Design tokens from the original HTML. Light by default, dark via the OS or the toggle. */
 :root {
   --bg: #fffaf4;
-  --panel: #e9f5ec;
-  --panel-ink: #14271c;
-  --panel-dim: #4a6655;
+  --panel: #10291c;
+  --panel-ink: #eef7f1;
+  --panel-dim: #a3c4b0;
   --log-bg: #ffffffcc;
   --log-line: #14271c22;
   --pip-ok: #2e9e6b;
@@ -26,9 +26,9 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0a0a0a;
-    --panel: #0f2a1c;
-    --panel-ink: #e8f5ec;
-    --panel-dim: #9cc9ab;
+    --panel: #0c2116;
+    --panel-ink: #eef7f1;
+    --panel-dim: #9cbfaa;
     --log-bg: #ffffff0d;
     --log-line: #ffffff26;
     --pip-ok: #6fd3a1;
@@ -48,9 +48,9 @@
 
 :root[data-theme="dark"] {
   --bg: #0a0a0a;
-  --panel: #0f2a1c;
-  --panel-ink: #e8f5ec;
-  --panel-dim: #9cc9ab;
+  --panel: #0c2116;
+  --panel-ink: #eef7f1;
+  --panel-dim: #9cbfaa;
   --log-bg: #ffffff0d;
   --log-line: #ffffff26;
   --pip-ok: #6fd3a1;
