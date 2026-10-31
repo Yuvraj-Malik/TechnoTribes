@@ -1,0 +1,29 @@
+# Supabase CLI config. `npm run db:auth` pushes the auth settings below to your
+# linked Supabase project (it asks before changing anything).
+# Only the settings written here are pushed; everything else is left as it is.
+
+project_id = "technotribes"
+
+[auth]
+enabled = true
+# Main URL of the app. Change to your Vercel URL before the final demo.
+site_url = "http://localhost:3000"
+# Where Supabase may send people back to after Google sign-in, email links and password resets.
+additional_redirect_urls = [
+  "http://localhost:3000/**",
+  "http://localhost:5173/**",
+  "https://*.vercel.app/**",
+]
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+# Off so sign-up works instantly in the demo (Supabase's built-in mailer is rate-limited).
+enable_confirmations = false
+
+[auth.external.google]
+enabled = true
+# Values come from supabase/.env (copy supabase/.env.example). Never commit the secret.
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+skip_nonce_check = false

@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+/* Design tokens from the original HTML. Light by default, dark via the OS or the toggle. */
+:root {
+  --bg: #fffaf4;
+  --panel: #e9f5ec;
+  --panel-ink: #14271c;
+  --panel-dim: #4a6655;
+  --log-bg: #ffffffcc;
+  --log-line: #14271c22;
+  --pip-ok: #2e9e6b;
+  --pip-b: #3f7fe0;
+  --pip-w: #e39a12;
+  --surface: #ffffff;
+  --ink: #14271c;
+  --dim: #586b5f;
+  --line: #dce8df;
+  --accent: #1b7f4a;
+  --accent-ink: #ffffff;
+  --mark: #f2b134;
+  --err: #b5372a;
+  --ok: #1e7a4f;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a0a0a;
+    --panel: #0f2a1c;
+    --panel-ink: #e8f5ec;
+    --panel-dim: #9cc9ab;
+    --log-bg: #ffffff0d;
+    --log-line: #ffffff26;
+    --pip-ok: #6fd3a1;
+    --pip-b: #7fb4ff;
+    --pip-w: #f2b134;
+    --surface: #141414;
+    --ink: #eef5f0;
+    --dim: #9ab0a2;
+    --line: #263329;
+    --accent: #3ddc84;
+    --accent-ink: #04140a;
+    --err: #f08a7c;
+    --ok: #6fd3a1;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0a0a0a;
+  --panel: #0f2a1c;
+  --panel-ink: #e8f5ec;
+  --panel-dim: #9cc9ab;
+  --log-bg: #ffffff0d;
+  --log-line: #ffffff26;
+  --pip-ok: #6fd3a1;
+  --pip-b: #7fb4ff;
+  --pip-w: #f2b134;
+  --surface: #141414;
+  --ink: #eef5f0;
+  --dim: #9ab0a2;
+  --line: #263329;
+  --accent: #3ddc84;
+  --accent-ink: #04140a;
+  --err: #f08a7c;
+  --ok: #6fd3a1;
+  color-scheme: dark;
+}
+
+/* Expose the tokens as Tailwind colors: bg-surface, text-dim, border-line, ... */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-ink: var(--panel-ink);
+  --color-panel-dim: var(--panel-dim);
+  --color-log-bg: var(--log-bg);
+  --color-log-line: var(--log-line);
+  --color-pip-ok: var(--pip-ok);
+  --color-pip-b: var(--pip-b);
+  --color-pip-w: var(--pip-w);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-dim: var(--dim);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-mark: var(--mark);
+  --color-err: var(--err);
+  --color-ok: var(--ok);
+}
+
+@theme {
+  --font-sans: "Instrument Sans", system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque", sans-serif;
+  --animate-rise: rise 0.5s both;
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+html {
+  scroll-padding-top: env(safe-area-inset-top, 0px);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 16px/1.5 var(--font-sans);
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
