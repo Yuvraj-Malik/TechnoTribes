@@ -13,10 +13,13 @@ export async function api(path, { method = 'GET', body, query } = {}) {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   const qs = query ? `?${new URLSearchParams(query)}` : '';
+  // Demo mode (project owner only): act as a demo person. Kept per browser tab.
+  const actAs = sessionStorage.getItem('actAs');
   const res = await fetch(`/api/${path.replace(/^\/+/, '')}${qs}`, {
     method,
     headers: {
       ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(actAs ? { 'x-act-as': actAs } : {}),
       ...(body ? { 'content-type': 'application/json' } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,

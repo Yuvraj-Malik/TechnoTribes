@@ -4,9 +4,10 @@ import { HttpError } from './errors.js';
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!url || !key) console.warn('[supabase-admin] SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing');
+if ((!url || !key) && !globalThis.__TEST_DB__) console.warn('[supabase-admin] SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing');
 
-export const db = createClient(url || 'http://localhost', key || 'missing', {
+// Tests can provide an in-memory client (tests/integration/fake-supabase.js).
+export const db = globalThis.__TEST_DB__ ?? createClient(url || 'http://localhost', key || 'missing', {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 

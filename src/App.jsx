@@ -6,6 +6,11 @@ import AuthCallbackPage from './pages/auth/AuthCallbackPage';
 import ResetPasswordPage from './pages/auth/ResetPasswordPage';
 import OnboardingPage from './pages/auth/OnboardingPage';
 import ProjectsHome from './pages/projects/ProjectsHome';
+import TeamLayout, { TeamHome } from './pages/projects/TeamLayout';
+import DeveloperWorkspace from './pages/worker/DeveloperWorkspace';
+import ManagerReview from './pages/admin/ManagerReview';
+import ProjectStory from './pages/projects/ProjectStory';
+import TeamSetup from './pages/owner/TeamSetup';
 
 export default function App() {
   return (
@@ -20,6 +25,13 @@ export default function App() {
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/onboarding" element={<RequireAuth><OnboardingPage /></RequireAuth>} />
           <Route path="/projects" element={<RequireAuth><ProjectsHome /></RequireAuth>} />
+          <Route path="/projects/:projectId" element={<RequireAuth><TeamLayout /></RequireAuth>}>
+            <Route index element={<TeamHome />} />
+            <Route path="workspace" element={<DeveloperWorkspace />} />
+            <Route path="review" element={<ManagerReview />} />
+            <Route path="story" element={<ProjectStory />} />
+            <Route path="setup" element={<TeamSetup />} />
+          </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>

@@ -124,3 +124,38 @@ Decisions run in order, so approving two clashing requests from one bucket appro
 - **Merge request:** pending → approved / rejected / redirected / **conflict** / **stale**
 - **Task:** open → in_progress → in_review → done
 - **Observer request:** pending → accepted → done, or rejected
+
+---
+
+## 5. Team workspace (departments, versioned context, developer agents, manager review)
+
+All take `projectId` (query for GET, body for POST). The project owner may send `x-act-as: <demo person id>` to act as a demo person. Guide: `docs/architecture/TEAM_WORKSPACE.md`.
+
+| Method | Endpoint | Who | Body / query | Returns |
+|---|---|---|---|---|
+| GET | `/api/team/bootstrap` | insiders | | `{ project, departments, people, me, agentMode, agentModel, canUseDemoMode, demoReady }` |
+| GET | `/api/team/context` | insiders | | `{ central, department, scopeVersions, lastSeenAt, changedSinceLastVisit }` |
+| POST | `/api/team/context/seen` | insiders | | clears "changed since your last visit" |
+| GET | `/api/team/context/history` | insiders | `sectionId` | `{ versions }` |
+| GET | `/api/team/log` | insiders | `department?`, `limit?` | `{ events }` newest first |
+| GET | `/api/team/log/export` | insiders | | `{ events }` oldest first |
+| GET | `/api/team/commits` | insiders | | main project history |
+| GET / POST | `/api/team/notifications`, `/api/team/notifications/read` | insiders | `ids?` | the acting person's notifications |
+| POST | `/api/team/members/department` | owner | `{ userId, department, role? }` | puts a member in a department (admin = manager, worker = developer) |
+| POST | `/api/team/demo/setup` | owner | `{ reset? }` | seeds the CampusEats demo |
+| GET | `/api/team/task/current` | developer | | `{ task, submission, check }` |
+| POST | `/api/team/task/start` | developer | `{ text }` | task after reading context, conflict check and plan |
+| POST | `/api/team/task/conflict-decision` | developer | `{ taskId, choice: proceed/change/cancel, newText? }` | task |
+| POST | `/api/team/task/plan-decision` | developer | `{ taskId, plan? }` | task after edits |
+| POST | `/api/team/task/follow-up` | developer | `{ taskId, message }` | task |
+| POST | `/api/team/task/retry` / `cancel` | developer | `{ taskId }` | task |
+| POST | `/api/team/task/submit` | developer | `{ taskId, why, force? }` | `{ submitted, submission }` or `{ submitted: false, check }` |
+| POST | `/api/team/task/context-decision` | developer | `{ taskId, choice: continue/adjust/cancel, newText? }` | task |
+| POST | `/api/team/task/rework` | developer | `{ taskId, newText }` | task (after "Sent back") |
+| POST | `/api/team/agent/restart` | developer | | `{ points }` "What I know" |
+| GET | `/api/team/workspace/files` / `file` / `bundle` / `diff` | developer (or `workspace=main`) | `path?` | files of the developer's copy or main |
+| GET | `/api/team/review/queue` | manager | `department?` | `{ items }` with `outdated`, `conflicts` |
+| GET | `/api/team/review/detail` | manager | `submissionId` | `{ submission, task, used, currentScopes, proposal }` |
+| POST | `/api/team/review/decide` | manager | `{ submissionId, action: approve/reject/send_back, note? }` | `{ submission, proposal }` (approve merges into main) |
+| GET | `/api/team/review/overview` | manager | `department?` | `{ developers, incoming }` |
+| POST | `/api/team/proposals/preview` / `confirm` / `discard` | manager | `{ proposalId, changes? }` | proposal with impact decision |

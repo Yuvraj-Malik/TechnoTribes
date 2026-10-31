@@ -49,9 +49,16 @@ export default function ProjectsHome() {
               <div className="font-semibold">{p.name}</div>
               {p.description && <div className="text-sm text-dim">{p.description}</div>}
             </div>
-            <span className="rounded-full border border-line px-3 py-1 text-[13px] text-dim">
-              {ROLE_LABEL[p.role]}{p.status === 'pending' ? ' (waiting for approval)' : ''}
-            </span>
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="rounded-full border border-line px-3 py-1 text-[13px] text-dim">
+                {ROLE_LABEL[p.role]}{p.status === 'pending' ? ' (waiting for approval)' : ''}
+              </span>
+              {p.status === 'active' && p.role !== 'observer' && (
+                <Link to={`/projects/${p.projectId}`} className={`rounded-full bg-accent px-3 py-1 text-[13px] font-semibold text-accent-ink no-underline ${focusRing}`}>
+                  Open team workspace
+                </Link>
+              )}
+            </div>
           </li>
         ))}
       </ul>

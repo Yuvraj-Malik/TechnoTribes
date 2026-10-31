@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test tests/unit/*.test.js",
+    "test:integration": "node --test tests/integration/*.test.js",
     "db:login": "supabase login",
     "db:link": "supabase link",
     "db:push": "supabase db push",

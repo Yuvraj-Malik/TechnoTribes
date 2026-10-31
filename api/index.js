@@ -16,6 +16,10 @@ import * as observer from '../server/observer.js';
 import * as history from '../server/history.js';
 import * as notifications from '../server/notifications.js';
 import * as github from '../server/github.js';
+import * as team from '../server/team.js';
+import * as teamWork from '../server/team-workspace.js';
+import * as teamReview from '../server/team-review.js';
+import * as teamImpact from '../server/team-impact.js';
 
 export const routes = {
   'GET health': async () => ({ ok: true, time: new Date().toISOString() }),
@@ -85,6 +89,43 @@ export const routes = {
   'POST github/import': github.importRepo,
   'POST github/branch': github.branch,
   'POST github/pull-request': github.pullRequest,
+
+  // Team workspace: departments, versioned context, developer agents, manager review
+  'GET team/bootstrap': team.bootstrap,
+  'GET team/context': team.context,
+  'POST team/context/seen': team.contextSeen,
+  'GET team/context/history': team.contextHistory,
+  'GET team/log': team.log,
+  'GET team/log/export': team.logExport,
+  'GET team/commits': team.commits,
+  'GET team/notifications': team.notifications,
+  'POST team/notifications/read': team.notificationsRead,
+  'POST team/members/department': team.setMemberDepartment,
+  'POST team/demo/setup': team.demoSetup,
+
+  'GET team/task/current': teamWork.current,
+  'POST team/task/start': teamWork.start,
+  'POST team/task/conflict-decision': teamWork.conflictDecision,
+  'POST team/task/plan-decision': teamWork.planDecision,
+  'POST team/task/follow-up': teamWork.followUp,
+  'POST team/task/retry': teamWork.retry,
+  'POST team/task/cancel': teamWork.cancel,
+  'POST team/task/submit': teamWork.submit,
+  'POST team/task/context-decision': teamWork.contextDecision,
+  'POST team/task/rework': teamWork.rework,
+  'POST team/agent/restart': teamWork.restartAgent,
+  'GET team/workspace/files': teamWork.files,
+  'GET team/workspace/file': teamWork.file,
+  'GET team/workspace/bundle': teamWork.bundle,
+  'GET team/workspace/diff': teamWork.diff,
+
+  'GET team/review/queue': teamReview.queue,
+  'GET team/review/detail': teamReview.detail,
+  'POST team/review/decide': teamReview.decide,
+  'GET team/review/overview': teamReview.overview,
+  'POST team/proposals/preview': teamImpact.preview,
+  'POST team/proposals/confirm': teamImpact.confirm,
+  'POST team/proposals/discard': teamImpact.discard,
 };
 
 const PUBLIC = new Set(['GET health']);
