@@ -13,7 +13,9 @@
     "db:link": "supabase link",
     "db:push": "supabase db push",
     "db:auth": "supabase config push",
-    "db:setup": "supabase db push && supabase config push"
+    "db:setup": "supabase db push && supabase config push",
+    "seed": "node --env-file=.env.local scripts/seed.js",
+    "test:supabase": "node --env-file=.env.local --test tests/supabase/*.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

@@ -1,6 +1,6 @@
 -- =====================================================================
 -- Owner workspace: teams, designations, owner agents and messages.
--- Runs automatically after 002_rls.sql.
+-- Runs automatically after the earlier migrations.
 -- =====================================================================
 
 -- team: the name of the team an admin leads (admins only).

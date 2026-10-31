@@ -26,7 +26,7 @@ function FocusChip({ label, color, active, onClick }) {
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={`flex cursor-pointer items-center gap-1.5 rounded-full border bg-surface px-2.5 py-1 text-[13px] max-sm:min-h-11 max-sm:px-3.5 ${active ? 'border-ink font-semibold text-ink' : 'border-line text-dim hover:text-ink'} ${focusRing}`}
+      className={`flex flex-none cursor-pointer items-center gap-1.5 rounded-full border bg-surface px-2.5 py-1 text-[13px] whitespace-nowrap max-lg:min-h-11 max-lg:px-3.5 ${active ? 'border-ink font-semibold text-ink' : 'border-line text-dim hover:text-ink'} ${focusRing}`}
     >
       {color && <span aria-hidden="true" className="size-2 rounded-full" style={{ backgroundColor: color }} />}
       {label}
@@ -69,7 +69,7 @@ export default function CodeTab() {
 
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
         <Segmented label="View" options={VIEWS} value={view} onChange={setView} />
-        <div role="group" aria-label="Focus on one person" className="flex flex-wrap gap-1">
+        <div role="group" aria-label="Focus on one person" className="-mx-4 flex min-w-0 gap-1 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
           <FocusChip label="Everyone" active={!focus} onClick={() => setFocus(null)} />
           {people.map((person) => (
             <FocusChip

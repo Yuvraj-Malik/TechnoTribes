@@ -12,9 +12,9 @@ export default function PageShell({ children }) {
       <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
         <Logo />
         <div className="flex items-center gap-3">
-          <Link to="/projects" className={`text-[13px] font-medium text-dim underline ${focusRing}`}>All projects</Link>
+          <Link to="/projects" className={`inline-flex min-h-11 items-center text-[13px] font-medium text-dim underline ${focusRing}`}>All projects</Link>
           <ThemeToggle />
-          <button type="button" onClick={signOut} className={`cursor-pointer rounded-full border border-line bg-surface px-3.5 py-2 text-[13px] font-medium text-dim ${focusRing}`}>
+          <button type="button" onClick={signOut} className={`min-h-11 shrink-0 cursor-pointer rounded-full border border-line bg-surface px-3.5 text-[13px] font-medium text-dim ${focusRing}`}>
             Sign out
           </button>
         </div>

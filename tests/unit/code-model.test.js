@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ROW_HEIGHT, branchName, buildBranches, buildFileTree, buildPeople, fileFacts, filePresence,
+  NODE_HEIGHT, ROW_HEIGHT, branchName, buildBranches, buildFileTree, buildPeople, fileFacts, filePresence,
   impactOf, layoutBranchMap, layoutDependencyGraph, personColors,
 } from '../../src/features/coordination/codeModel.js';
 
@@ -64,6 +64,17 @@ test('a branch older than the visible log runs to the bottom of the graph', () =
   const old = [{ id: 'old', userId: 'a', state: 'building', baseVersion: 2, targets: [] }];
   const map = layoutBranchMap({ branches: old, log: log.slice(0, 2) });
   assert.ok(map.links[0].d.endsWith(`${map.trunk.x} ${map.trunk.bottom}`));
+});
+
+test('narrow screens get a tighter graph that still joins up', () => {
+  const branches = buildBranches({ work, queue, headVersion: 12 });
+  const wide = layoutBranchMap({ branches, log });
+  const narrow = layoutBranchMap({ branches, log, laneWidth: 10 });
+  assert.ok(narrow.width < wide.width / 1.5);
+  assert.deepEqual(narrow.rows.map((r) => r.key), wide.rows.map((r) => r.key));
+
+  const v10 = narrow.rows.find((r) => r.key === 'v10');
+  assert.ok(narrow.links[1].d.endsWith(`${narrow.trunk.x} ${v10.cy}`));
 });
 
 test('a new project still has a starting point', () => {
@@ -154,7 +165,7 @@ test('the graph puts requirements left and dependents right', () => {
 test('nodes in one column never overlap', () => {
   const graph = layoutDependencyGraph({ edges });
   const column = graph.placed.filter((n) => n.key.includes('Pricing') || n.key.includes('Signup'));
-  assert.ok(Math.abs(column[0].y - column[1].y) >= 36);
+  assert.ok(Math.abs(column[0].y - column[1].y) >= NODE_HEIGHT);
 });
 
 test('a long edge runs between nodes instead of behind them', () => {
@@ -174,7 +185,7 @@ test('a long edge runs between nodes instead of behind them', () => {
 
   const page = graph.placed.find((n) => n.key === 'file:Page.jsx');
   const crossing = Number(long.d.match(/([\d.]+) H /)[1]);
-  assert.ok(crossing < page.y || crossing > page.y + 36, 'the edge must miss the node it passes');
+  assert.ok(crossing < page.y || crossing > page.y + NODE_HEIGHT, 'the edge must miss the node it passes');
 });
 
 test('a dependency cycle and an empty graph both stay safe', () => {

@@ -1,6 +1,6 @@
 // The owner's workspace: the sidebar, the shared project data, and one route per tab.
 import { useEffect } from 'react';
-import { Route, Routes } from 'react-router-dom';
+import { Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { OwnerContext } from '../../features/projects/ownerContext';
 import { useProjectOverview } from '../../features/projects/useProjectOverview';
@@ -23,10 +23,16 @@ export default function OwnerWorkspace({ projectId }) {
   const overview = useProjectOverview(projectId, user.id);
   const { data, error, actionError, reload } = overview;
   const projectName = data?.project.name;
+  const { pathname } = useLocation();
 
   useEffect(() => {
     if (projectName) document.title = `${projectName} · Buildify`;
   }, [projectName]);
+
+  // Each tab opens at its top, not wherever the last tab was scrolled to.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
 
   if (!data) {
     return (
@@ -42,9 +48,11 @@ export default function OwnerWorkspace({ projectId }) {
   const { items, withAdmins } = buildNeedsYou(data);
   const me = data.members.find((m) => m.user_id === user.id);
   const version = data.log[0]?.version ?? 0;
+  const base = `/projects/${projectId}/owner`;
   const value = {
     ...overview,
     projectId,
+    base,
     me,
     version,
     needsYou: items,
@@ -56,15 +64,15 @@ export default function OwnerWorkspace({ projectId }) {
   return (
     <OwnerContext.Provider value={value}>
       <OwnerSidebar
-        projectId={projectId}
+        base={base}
         projectName={projectName}
         version={version}
         ownerName={me?.name || user.email}
         needsYouCount={items.length}
         onSignOut={signOut}
       />
-      <div className="md:pl-56">
-        <main className="mx-auto max-w-6xl px-4 py-6 md:px-10 md:py-9">
+      <div className="lg:pl-56">
+        <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-9">
           {error && (
             <div className="mb-4">
               <Alert tone="error">This may be out of date. {error}</Alert>

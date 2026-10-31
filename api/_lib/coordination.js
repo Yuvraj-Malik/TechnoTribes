@@ -84,7 +84,7 @@ export async function propagateChange(projectId, changedKeys, newVersion, actorI
   const hits = (arr) => (arr || []).some((k) => affected.has(k));
 
   const [proposals, mergeRequests, intents] = await Promise.all([
-    q(db.from('proposals').select('id,user_id,summary,targets,depends_on,base_version,status')
+    q(db.from('proposals').select('id,user_id,intent_id,summary,targets,depends_on,base_version,status')
       .eq('project_id', projectId).in('status', ['draft', 'reviewed', 'submitted'])),
     q(db.from('merge_requests').select('id,submitted_by,targets,depends_on,base_version,status')
       .eq('project_id', projectId).eq('status', 'pending')),
@@ -94,7 +94,8 @@ export async function propagateChange(projectId, changedKeys, newVersion, actorI
   const staleProposals = proposals.filter((p) => p.base_version < newVersion && (hits(p.targets) || hits(p.depends_on)));
   const staleMergeRequests = mergeRequests.filter((m) => m.id !== excludeMergeRequestId
     && m.base_version < newVersion && (hits(m.targets) || hits(m.depends_on)));
-  const interrupted = intents.filter((i) => hits(i.targets));
+  const staleIntents = new Set(staleProposals.map((p) => p.intent_id));
+  const interrupted = intents.filter((i) => hits(i.targets) && !staleIntents.has(i.id));
 
   const users = new Set([
     ...staleProposals.map((p) => p.user_id),
@@ -117,6 +118,8 @@ export async function propagateChange(projectId, changedKeys, newVersion, actorI
   if (staleProposals.length) {
     await q(db.from('proposals').update({ status: 'stale', stale_reason: reason })
       .in('id', staleProposals.map((p) => p.id)));
+    // Stale work has to be redone, so it must not block anyone else's re-run.
+    await releaseIntents(staleProposals.map((p) => p.intent_id));
   }
   if (staleMergeRequests.length) {
     await q(db.from('merge_requests').update({ status: 'stale', conflict_reason: reason })

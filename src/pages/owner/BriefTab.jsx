@@ -28,9 +28,11 @@ function ImpactList({ title, items }) {
 
 function ImpactReview({ preview, nextVersion, reason, onReason, onSave, onBack, busy }) {
   const { changedFields, impact } = preview;
+  // A request and its proposal are one piece of work, so each person's shows once.
+  const withProposal = new Set(impact.staleProposals.map((p) => p.who));
   const stale = [
     ...impact.staleProposals.map((p) => `${p.who || 'Someone'}: ${p.summary}`),
-    ...impact.staleMergeRequests.map((m) => `${m.who || 'Someone'}: a request waiting for review`),
+    ...impact.staleMergeRequests.filter((m) => !withProposal.has(m.who)).map((m) => `${m.who || 'Someone'}: a request waiting for review`),
   ];
   const interrupted = impact.interruptedWork.map((w) => `${w.who || 'Someone'}: ${w.goal}`);
   const clear = !stale.length && !interrupted.length;
@@ -149,8 +151,8 @@ export default function BriefTab() {
       <Alert tone="error">{error || state.error}</Alert>
       <Alert tone="ok">{saved}</Alert>
 
-      <div className="grid gap-7 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <div>
+      <div className="grid gap-7 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="min-w-0">
           {!brief && !state.error && <p className="text-dim" role="status">Loading…</p>}
 
           {brief && !draft && !filled.length && (

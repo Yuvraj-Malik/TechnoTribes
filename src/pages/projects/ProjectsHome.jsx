@@ -39,26 +39,24 @@ export default function ProjectsHome() {
       {projects === null && !error && <p className="text-dim">Loading…</p>}
       {projects?.length === 0 && (
         <p className="text-dim">
-          You are not in any project yet. <Link to="/onboarding" className="font-semibold text-accent">Start or join one</Link>
+          You are not in any project yet. <Link to="/onboarding" className={`inline-flex min-h-11 items-center font-semibold text-accent ${focusRing}`}>Start or join one</Link>
         </p>
       )}
       <ul className="m-0 grid list-none gap-3 p-0">
         {projects?.map((p) => (
-          <li key={p.projectId}>
-            <Link to={`/projects/${p.projectId}`} className={`flex items-center justify-between gap-3 rounded-[10px] border border-line bg-surface px-4 py-3.5 hover:border-accent ${focusRing}`}>
-              <div>
-                <div className="font-semibold">{p.name}</div>
-                {p.description && <div className="text-sm text-dim">{p.description}</div>}
-              </div>
-              <span className="rounded-full border border-line px-3 py-1 text-[13px] text-dim">
-                {ROLE_LABEL[p.role]}{p.status === 'pending' ? ' (waiting for approval)' : ''}
-              </span>
-            </Link>
+          <li key={p.projectId} className="flex items-center justify-between gap-3 rounded-[10px] border border-line bg-surface px-4 py-3.5">
+            <div>
+              <Link to={`/projects/${p.projectId}/owner`} className={`inline-flex min-h-11 items-center font-semibold text-accent underline ${focusRing}`}>{p.name}</Link>
+              {p.description && <div className="text-sm text-dim">{p.description}</div>}
+            </div>
+            <span className="rounded-full border border-line px-3 py-1 text-[13px] text-dim">
+              {ROLE_LABEL[p.role]}{p.status === 'pending' ? ' (waiting for approval)' : ''}
+            </span>
           </li>
         ))}
       </ul>
       {projects?.length > 0 && (
-        <p className="mt-6 text-sm"><Link to="/onboarding" className="font-semibold text-accent">Start or join another project</Link></p>
+        <p className="mt-6 text-sm"><Link to="/onboarding" className={`inline-flex min-h-11 items-center font-semibold text-accent ${focusRing}`}>Start or join another project</Link></p>
       )}
     </div>
   );

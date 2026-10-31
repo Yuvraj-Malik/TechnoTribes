@@ -5,12 +5,24 @@ import { requireFields, asArray, displayName } from '../api/_lib/http.js';
 import { requireRole, ENGINEERS, MANAGERS } from '../api/_lib/permissions.js';
 import { commitChange } from '../api/_lib/moderator.js';
 import { propagateChange, releaseIntents } from '../api/_lib/coordination.js';
-import { loadEdges, downstream, addDependencies } from '../api/_lib/dependency-graph.js';
+import { loadEdges, downstream, addDependencies, intersect } from '../api/_lib/dependency-graph.js';
 import { rebucket } from '../api/_lib/reviews.js';
 import { notify, managersOf, observerOf, addHistory, namesFor } from '../api/_lib/log.js';
 import { fileKey, humanizeKey } from '../api/_lib/paths.js';
 
-// POST /api/reviews/submit  { projectId, proposalIds: [], note? }   (admin/worker, own proposals)
+// A new request replaces the same person's out-of-date requests on those files,
+// so they stop showing as needing a re-run.
+async function closeReplaced(projectId, userId, mergeRequest) {
+  const old = await q(db.from('merge_requests').select('id,targets')
+    .eq('project_id', projectId).eq('submitted_by', userId).in('status', ['stale', 'conflict']));
+  const replaced = old.filter((m) => intersect(m.targets, mergeRequest.targets).length).map((m) => m.id);
+  if (!replaced.length) return;
+  await q(db.from('merge_requests').update({
+    status: 'rejected', decision_note: 'Replaced by a newer request', decided_at: new Date().toISOString(),
+  }).in('id', replaced));
+}
+
+// POST /api/reviews/submit  { projectId, proposalIds: [], note? }   (engineers, own proposals)
 // Lists every change, with its reason and the version it was based on.
 export async function submit({ user, body }) {
   requireFields(body, ['projectId', 'proposalIds']);
@@ -43,6 +55,7 @@ export async function submit({ user, body }) {
   await q(db.from('proposals').update({ status: 'submitted' }).in('id', ids));
   const taskIds = [...new Set(proposals.map((p) => p.task_id).filter(Boolean))];
   if (taskIds.length) await q(db.from('tasks').update({ status: 'in_review' }).in('id', taskIds));
+  await closeReplaced(body.projectId, user.id, mr);
   await rebucket(body.projectId);
   await notify((await managersOf(body.projectId)).filter((id) => id !== user.id).map((id) => ({
     user_id: id, project_id: body.projectId, kind: 'merge_request',
@@ -157,6 +170,8 @@ async function decideOne(user, projectId, { mergeRequestId, decision, note }) {
   if (clash) {
     const reason = `Since this was made, these parts changed: ${clash.areas.join(', ')}.`;
     await q(db.from('merge_requests').update({ status: 'conflict', conflict_reason: reason }).eq('id', mr.id));
+    await q(db.from('proposals').update({ status: 'stale', stale_reason: reason }).in('id', mr.proposal_ids));
+    await releaseIntents(proposals.map((p) => p.intent_id));
     await notify([{
       user_id: mr.submitted_by, project_id: projectId, kind: 'merge_conflict',
       title: 'Your changes conflict with newer approved work', body: `${reason} Re-run your Builder on the latest version.`,

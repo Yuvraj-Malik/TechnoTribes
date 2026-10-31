@@ -1,7 +1,8 @@
 // The owner's navigation, quiet on purpose: text links, one soft highlight for the
-// current page, and the account kept in the bottom corner. On phones the links
-// become one row that scrolls sideways.
-import { Link, NavLink } from 'react-router-dom';
+// current page, and the account kept in the bottom corner. Below the desktop layout
+// the links become one row at the top that scrolls sideways.
+import { useEffect, useRef } from 'react';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import { Logo } from '../auth/BrandPanel';
 import Avatar from '../common/Avatar';
 import Icon from '../common/Icon';
@@ -17,7 +18,7 @@ const TABS = [
 ];
 const SETTINGS = { to: 'settings', label: 'Settings', icon: 'settings' };
 
-const rowClass = 'flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm whitespace-nowrap max-md:min-h-11';
+const rowClass = 'flex flex-none items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm whitespace-nowrap max-lg:min-h-11';
 
 function TabLink({ base, tab, badge = 0, className = '' }) {
   return (
@@ -38,33 +39,40 @@ function TabLink({ base, tab, badge = 0, className = '' }) {
   );
 }
 
-export default function OwnerSidebar({ projectId, projectName, version, ownerName, needsYouCount, onSignOut }) {
-  const base = `/projects/${projectId}`;
+export default function OwnerSidebar({ base, projectName, version, ownerName, needsYouCount, onSignOut }) {
+  const { pathname } = useLocation();
+  const navRef = useRef(null);
+
+  // When the links scroll sideways, keep the current one in view.
+  useEffect(() => {
+    navRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [pathname]);
+
   return (
-    <aside className="sticky top-0 z-20 border-b border-line bg-bg md:fixed md:inset-y-0 md:left-0 md:flex md:w-56 md:flex-col md:border-r md:border-b-0">
-      <div className="flex items-center justify-between gap-3 px-4 pt-3 md:block md:px-5 md:pt-6">
-        <Logo className="text-lg! md:mb-6" />
+    <aside className="sticky top-[env(safe-area-inset-top,0px)] z-20 border-b border-line bg-bg max-lg:[@media(max-height:500px)]:static lg:fixed lg:inset-y-0 lg:left-0 lg:flex lg:w-56 lg:flex-col lg:overflow-y-auto lg:border-r lg:border-b-0">
+      <div className="flex items-center justify-between gap-3 px-4 pt-2 lg:block lg:px-5 lg:pt-6">
+        <Logo className="text-lg! lg:mb-6" />
         <Link
           to="/projects"
           title="Switch project"
-          className={`flex min-w-0 items-center gap-1.5 rounded-lg text-ink max-md:min-h-11 md:-mx-1 md:px-1 md:py-1 md:hover:bg-ink/[0.05] ${focusRing}`}
+          className={`flex min-w-0 items-center gap-1.5 rounded-lg text-ink max-lg:min-h-11 lg:-mx-1 lg:px-1 lg:py-1 lg:hover:bg-ink/[0.05] ${focusRing}`}
         >
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-semibold">{projectName}</span>
-            <span className="hidden font-mono text-xs text-dim md:block">main · v{version}</span>
+            <span className="hidden font-mono text-xs text-dim lg:block">main · v{version}</span>
           </span>
           <Icon name="switch" className="size-4 text-dim" />
         </Link>
       </div>
 
-      <nav aria-label="Project" className="flex gap-0.5 overflow-x-auto px-3 py-2 [scrollbar-width:none] md:flex-1 md:flex-col md:overflow-visible md:py-5">
+      <nav ref={navRef} aria-label="Project" className="flex gap-0.5 overflow-x-auto px-3 py-1 [scrollbar-width:none] lg:flex-1 lg:flex-col lg:overflow-visible lg:py-5">
         {TABS.map((tab) => (
           <TabLink key={tab.label} base={base} tab={tab} badge={tab.end ? needsYouCount : 0} />
         ))}
-        <TabLink base={base} tab={SETTINGS} className="md:hidden" />
+        <TabLink base={base} tab={SETTINGS} className="lg:hidden" />
       </nav>
 
-      <div className="hidden border-t border-line p-3 md:block">
+      <div className="hidden border-t border-line p-3 lg:block">
         <TabLink base={base} tab={SETTINGS} />
         <button type="button" onClick={onSignOut} className={`${rowClass} w-full cursor-pointer border-0 bg-transparent text-dim hover:text-ink ${focusRing}`}>
           <Icon name="signout" />

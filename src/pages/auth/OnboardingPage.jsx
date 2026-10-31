@@ -139,7 +139,7 @@ export default function OnboardingPage() {
       )}
     >
       {result ? (
-        <Done result={result} onContinue={() => navigate('/projects', { replace: true })} />
+        <Done result={result} onContinue={() => navigate(`/projects/${result.projectId}/owner`, { replace: true })} />
       ) : (
         <>
           <h1 className={heading}>How will you use Buildify?</h1>

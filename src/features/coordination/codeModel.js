@@ -7,9 +7,10 @@ const PERSON_COLORS = ['#3f7fe0', '#2e9e6b', '#e39a12', '#c2557a', '#7a6ff0', '#
 export const ROW_HEIGHT = 58;
 const LANE_WIDTH = 20;
 const PAD = 16;
+const COMPACT_PAD = 12;
 
 export const NODE_WIDTH = 168;
-export const NODE_HEIGHT = 36;
+export const NODE_HEIGHT = 44; // also a comfortable tap target
 const COLUMN_GAP = 60;
 const NODE_GAP = 12;
 const STOP_HEIGHT = 4;
@@ -72,7 +73,8 @@ export function buildBranches({ work = [], queue = {}, headVersion = 0 }) {
 // Lays out a `git log --graph`: branch tips on top, then main from newest to
 // oldest. Branches on newer versions take the lanes closest to main, so their
 // lines leave the graph first and never cross. Expects buildBranches' order.
-export function layoutBranchMap({ branches = [], log = [] }) {
+// Pass a smaller laneWidth to leave more room for text on narrow screens.
+export function layoutBranchMap({ branches = [], log = [], laneWidth = LANE_WIDTH }) {
   const commits = log.map((entry) => ({ ...entry, type: 'commit', key: `v${entry.version}` }));
   if ((commits.at(-1)?.version ?? 0) <= 1) commits.push({ type: 'root', key: 'root', version: 0 });
 
@@ -80,7 +82,8 @@ export function layoutBranchMap({ branches = [], log = [] }) {
     ...branches.map((b, i) => ({ ...b, type: 'branch', key: b.id, lane: i + 1 })),
     ...commits.map((c) => ({ ...c, lane: 0 })),
   ];
-  const x = (lane) => PAD + lane * LANE_WIDTH;
+  const pad = laneWidth < LANE_WIDTH ? COMPACT_PAD : PAD;
+  const x = (lane) => pad + lane * laneWidth;
   const y = (row) => ROW_HEIGHT / 2 + row * ROW_HEIGHT;
   const rowOfVersion = new Map(commits.map((c, i) => [c.version, branches.length + i]));
   const lastRow = rows.length - 1;
@@ -101,7 +104,7 @@ export function layoutBranchMap({ branches = [], log = [] }) {
     rows: rows.map((row, i) => ({ ...row, cx: x(row.lane), cy: y(i) })),
     links,
     trunk: { x: x(0), top: y(branches.length), bottom: y(lastRow) },
-    width: x(branches.length) + PAD,
+    width: x(branches.length) + pad,
     height: rows.length * ROW_HEIGHT,
   };
 }

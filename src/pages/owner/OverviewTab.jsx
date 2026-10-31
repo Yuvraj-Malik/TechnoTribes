@@ -5,7 +5,7 @@ import { buildOrg, statusLine } from '../../features/projects/overviewModel';
 import AgentStatus from '../../components/agents/AgentStatus';
 import Avatar from '../../components/common/Avatar';
 import PageHeader from '../../components/common/PageHeader';
-import { card, sectionTitle } from '../../components/common/styles';
+import { card, focusRing, sectionTitle } from '../../components/common/styles';
 import NeedsYouList from '../../components/reviews/NeedsYouList';
 import RecentChanges from '../../components/timeline/RecentChanges';
 
@@ -14,7 +14,7 @@ function Section({ title, link, children }) {
     <section>
       <div className="mb-2 flex items-baseline justify-between gap-3">
         <h2 className={sectionTitle}>{title}</h2>
-        {link && <Link to={link.to} className="text-[13px] font-medium text-accent">{link.label}</Link>}
+        {link && <Link to={link.to} className={`inline-flex items-center text-[13px] font-medium text-accent max-lg:min-h-11 ${focusRing}`}>{link.label}</Link>}
       </div>
       {children}
     </section>
@@ -67,9 +67,8 @@ function TeamRows({ org, colors }) {
 }
 
 export default function OverviewTab() {
-  const { data, projectId, me, version, needsYou, withAdmins, colors, act, decide } = useOwner();
+  const { data, projectId, base, me, version, needsYou, withAdmins, colors, act, decide } = useOwner();
   const { project, members, queue, log } = data;
-  const base = `/projects/${projectId}`;
   const org = buildOrg(members);
   const inReview = (queue.buckets || []).reduce((sum, b) => sum + (b.mergeRequests?.length || 0), 0);
   const working = members.flatMap((m) => m.agents || []).filter((a) => a.status === 'working').length;
@@ -86,8 +85,8 @@ export default function OverviewTab() {
         ]}
       />
 
-      <div className="grid gap-7 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <div className="space-y-7">
+      <div className="grid gap-7 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-7">
           <Section title="Needs you">
             <NeedsYouList
               items={needsYou}
@@ -100,7 +99,7 @@ export default function OverviewTab() {
             <TeamRows org={org} colors={colors} />
           </Section>
         </div>
-        <div className="space-y-7">
+        <div className="grid min-w-0 content-start gap-7 md:grid-cols-2 xl:grid-cols-1">
           <Section title="Your agents" link={{ to: `${base}/agents`, label: 'Open' }}>
             <div className={`${card} px-4 py-3`}><AgentStatus agents={me?.agents} /></div>
           </Section>

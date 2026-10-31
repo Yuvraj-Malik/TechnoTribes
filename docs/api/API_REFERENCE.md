@@ -113,13 +113,15 @@ Nothing reaches the project until it is submitted and approved.
 | POST | `/api/github/pull-request` | managers | `{ projectId, head, base?, title, body? }` | `{ number, url }` |
 
 **Approve flow (`reviews/decide`):**
-1. **Conflict check.** If anything the request touches or depends on changed since its `base_version`, it becomes `conflict` and the worker is told to re-run.
+1. **Conflict check.** If anything the request touches or depends on changed since its `base_version`, it becomes `conflict`, its proposals become `stale`, and the worker is told to re-run.
 2. The Moderator commits the change as a new version and writes the permanent log with a plain-language summary.
 3. Dependency edges are recorded and the intents are released.
 4. Every unfinished proposal or request that depended on the changed files becomes `stale`, and its owner is notified.
 5. Linked tasks and observer requests are closed. The observer gets the update.
 
 Decisions run in order, so approving two clashing requests from one bucket approves the first and flags the second.
+
+Stale and conflicted work releases its intent, so it never blocks another agent's re-run. A new request from the same person on the same files closes their old stale one.
 
 ---
 

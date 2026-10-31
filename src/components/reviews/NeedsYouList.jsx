@@ -39,7 +39,7 @@ function RequestReview({ request, onDecide }) {
             value={note}
             onChange={(e) => setNote(e.target.value)}
             required
-            className={`min-w-0 flex-1 basis-48 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink ${focusRing}`}
+            className={`min-w-0 flex-1 basis-48 rounded-lg border border-line bg-surface px-3 py-1.5 text-base text-ink max-lg:min-h-11 lg:text-sm ${focusRing}`}
           />
           <button type="submit" disabled={busy} className={outlineButton}>Send back</button>
           <button type="button" className={quietButton} onClick={() => setSendingBack(false)}>Cancel</button>

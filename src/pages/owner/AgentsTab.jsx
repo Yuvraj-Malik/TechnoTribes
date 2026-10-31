@@ -170,7 +170,7 @@ export default function AgentsTab() {
     <>
       <PageHeader title="My agents">You have your own Builder and Critic. Your changes go through the same review as everyone else's.</PageHeader>
 
-      <div className="grid gap-7 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+      <div className="grid gap-7 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-7">
           <form onSubmit={onSubmit} className={`${card} p-4`}>
             <TextArea label="Give your Builder a job" rows={3} placeholder="Add a monthly and yearly switch to the pricing page" value={instruction} onChange={(e) => { setInstruction(e.target.value); setError(''); }} />
@@ -204,7 +204,7 @@ export default function AgentsTab() {
           </section>
         </div>
 
-        <div className="min-w-0 space-y-7">
+        <div className="grid min-w-0 content-start gap-7 md:grid-cols-2 xl:grid-cols-1">
           <section>
             <h2 className={`${sectionTitle} mb-2`}>Status</h2>
             <div className={`${card} px-4 py-3`}><AgentStatus agents={me?.agents} /></div>

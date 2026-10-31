@@ -30,7 +30,7 @@ export default function DependencyGraph({ nodes, edges, branches, colors, focus 
 
   return (
     <div className={`${card} overflow-hidden`}>
-      <div className="overflow-x-auto p-4">
+      <div tabIndex={0} aria-label="Dependency graph, scrolls sideways" className={`overflow-x-auto overscroll-x-contain p-4 ${focusRing}`}>
         <svg width={graph.width} height={graph.height} role="group" aria-label="Dependency graph" className="block">
           {graph.links.map((link) => (
             <path
@@ -68,7 +68,7 @@ export default function DependencyGraph({ nodes, edges, branches, colors, focus 
               >
                 <title>{plainKey(node.key)}</title>
                 <rect width={NODE_WIDTH} height={NODE_HEIGHT} rx="8" fill="var(--surface)" stroke={stroke} strokeWidth={working || node.key === selected || isRequirement ? 2 : 1} />
-                <text x="12" y="22.500" fontSize="12.500" fontFamily="var(--font-mono, monospace)" fill="var(--ink)">{shortLabel(node.label)}</text>
+                <text x="12" y={NODE_HEIGHT / 2 + 4.5} fontSize="12.500" fontFamily="var(--font-mono, monospace)" fill="var(--ink)">{shortLabel(node.label)}</text>
               </g>
             );
           })}

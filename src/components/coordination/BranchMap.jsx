@@ -5,6 +5,7 @@ import Badge from '../common/Badge';
 import { card, linkButton } from '../common/styles';
 import { when } from '../timeline/RecentChanges';
 import { ROW_HEIGHT, layoutBranchMap } from '../../features/coordination/codeModel';
+import { useElementWidth } from '../../hooks/useElementWidth';
 
 const STATES = {
   building: { label: 'Building', tone: 'accent' },
@@ -14,6 +15,10 @@ const STATES = {
 };
 
 const RECENT_VERSIONS = 8;
+const COMPACT_BELOW = 560; // px of space for the whole map
+
+// On narrow screens the lanes share at most 40% of the width, so the text stays readable.
+const compactLaneWidth = (width, branchCount) => Math.max(8, Math.min(12, Math.floor((width * 0.4) / (branchCount + 1))));
 
 const fileCount = (targets) => {
   const count = targets.filter((key) => key.startsWith('file:')).length;
@@ -42,29 +47,32 @@ function Commit({ row, color }) {
   return <circle cx={x} cy={y} r="5.500" fill={color || 'var(--dim)'} stroke="var(--surface)" strokeWidth="1.500" />;
 }
 
-function BranchRow({ row }) {
+function BranchRow({ row, compact }) {
   const state = STATES[row.state];
+  const badge = <Badge tone={state.tone}>{state.label}</Badge>;
+  const detail = [compact && row.behind > 0 ? `${row.behind} behind` : null, row.who, row.reason || row.goal, fileCount(row.targets)];
   return (
     <div className="min-w-0 flex-1">
       <div className="flex items-center gap-2">
         <code className="min-w-0 truncate font-mono text-[13px] font-semibold">{row.name}</code>
-        <Badge tone={state.tone}>{state.label}</Badge>
-        {row.behind > 0 && <span className="hidden text-xs whitespace-nowrap text-dim sm:inline">{row.behind} behind main</span>}
+        {!compact && badge}
+        {!compact && row.behind > 0 && <span className="text-xs whitespace-nowrap text-dim">{row.behind} behind main</span>}
       </div>
-      <p className="m-0 truncate text-[13px] text-dim" title={row.reason || row.goal}>
-        {row.who} · {row.reason || row.goal} · {fileCount(row.targets)}
-      </p>
+      <div className="flex min-w-0 items-center gap-2">
+        {compact && badge}
+        <p className="m-0 min-w-0 truncate text-[13px] text-dim" title={row.reason || row.goal}>{detail.filter(Boolean).join(' · ')}</p>
+      </div>
     </div>
   );
 }
 
-function CommitRow({ row, head }) {
+function CommitRow({ row, head, compact }) {
   const author = row.submittedByName;
   return (
     <div className="min-w-0 flex-1">
       <div className="flex items-center gap-2">
         <code className="font-mono text-[13px] font-semibold">v{row.version}</code>
-        {head && <Badge>main</Badge>}
+        {head && !compact && <Badge>main</Badge>}
         <span className="min-w-0 truncate text-sm" title={row.summary}>{row.summary}</span>
       </div>
       <p className="m-0 truncate text-[13px] text-dim">
@@ -76,6 +84,9 @@ function CommitRow({ row, head }) {
 
 export default function BranchMap({ branches, log, colors, focus }) {
   const [showAll, setShowAll] = useState(false);
+  const [ref, width] = useElementWidth();
+  const compact = width > 0 && width < COMPACT_BELOW;
+  const laneWidth = compact ? compactLaneWidth(width, branches.length) : undefined;
 
   // Recent versions, plus anything an open branch still has to connect to.
   const shown = useMemo(() => {
@@ -85,12 +96,12 @@ export default function BranchMap({ branches, log, colors, focus }) {
   }, [log, branches, showAll]);
   const hidden = log.length - shown.length;
 
-  const map = useMemo(() => layoutBranchMap({ branches, log: shown }), [branches, shown]);
+  const map = useMemo(() => layoutBranchMap({ branches, log: shown, laneWidth }), [branches, shown, laneWidth]);
   const faded = (userId) => focus && userId !== focus;
   const owner = (row) => (row.type === 'branch' ? row.userId : row.submitted_by);
 
   return (
-    <div className={`${card} relative overflow-hidden`}>
+    <div ref={ref} className={`${card} relative overflow-hidden`}>
       <svg width={map.width} height={map.height} className="absolute top-0 left-0" aria-hidden="true">
         {map.trunk.bottom > map.trunk.top && <line x1={map.trunk.x} x2={map.trunk.x} y1={map.trunk.top} y2={map.trunk.bottom} stroke="var(--dim)" strokeWidth="2" />}
         {map.links.map((link) => (
@@ -119,8 +130,8 @@ export default function BranchMap({ branches, log, colors, focus }) {
             style={{ height: ROW_HEIGHT, opacity: row.type !== 'root' && faded(owner(row)) ? 0.35 : 1 }}
             className={`flex items-center pr-4 ${i ? 'border-t border-line' : ''}`}
           >
-            {row.type === 'branch' && <BranchRow row={row} />}
-            {row.type === 'commit' && <CommitRow row={row} head={i === branches.length} />}
+            {row.type === 'branch' && <BranchRow row={row} compact={compact} />}
+            {row.type === 'commit' && <CommitRow row={row} head={i === branches.length} compact={compact} />}
             {row.type === 'root' && <span className="text-[13px] text-dim">Project created</span>}
           </li>
         ))}

@@ -224,6 +224,7 @@ Sample data for development and the demo: one project, an owner, an admin, 2 wor
 | `scripts/` | Helper scripts: `seed.js`, `reset-demo.js` |
 | `tests/unit/` | Tests for pure logic: dependency graph, overlap checks, bucketing, permissions |
 | `tests/integration/` | Full flows: worker submits → admin approves → Moderator records → observer is notified |
+| `tests/supabase/` | The same kind of flow against a real local Supabase, with only Claude faked (`npm run test:supabase`) |
 
 ---
 

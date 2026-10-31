@@ -89,7 +89,7 @@ function Person({ person, color, admins, onSave, lead = false }) {
 }
 
 export default function TeamTab() {
-  const { data, projectId, colors, act } = useOwner();
+  const { data, projectId, base, colors, act } = useOwner();
   const org = buildOrg(data.members);
   const admins = org.teams.map((team) => team.lead);
   const pending = data.members.filter((m) => m.status === 'pending');
@@ -128,7 +128,7 @@ export default function TeamTab() {
 
         {!org.teams.length && (
           <p className={`${card} m-0 px-6 py-8 text-center text-sm text-dim`}>
-            No admins yet. <Link to={`/projects/${projectId}/settings`} className="font-semibold text-accent">Create an admin code in Settings</Link>
+            No admins yet. <Link to={`${base}/settings`} className="font-semibold text-accent">Create an admin code in Settings</Link>
           </p>
         )}
 

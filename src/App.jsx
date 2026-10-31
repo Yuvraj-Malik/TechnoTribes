@@ -19,9 +19,9 @@ export default function App() {
           <Route path="/forgot-password" element={<PublicOnly><AuthPage key="forgot" initialMode="forgot" /></PublicOnly>} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/projects/:projectId/owner/*" element={<RequireAuth><ProjectRoute /></RequireAuth>} />
           <Route path="/onboarding" element={<RequireAuth><OnboardingPage /></RequireAuth>} />
           <Route path="/projects" element={<RequireAuth><ProjectsHome /></RequireAuth>} />
-          <Route path="/projects/:projectId/*" element={<RequireAuth><ProjectRoute /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>

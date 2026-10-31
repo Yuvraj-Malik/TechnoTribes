@@ -31,7 +31,7 @@ function FileDetail({ path, content, branches, facts, colors }) {
   const lines = content === undefined ? null : content.split('\n');
   const people = new Set(branches.map((b) => b.userId));
   return (
-    <div className="min-w-0 border-t border-line lg:border-t-0 lg:border-l">
+    <div className="min-w-0 border-t border-line md:border-t-0 md:border-l">
       <div className="space-y-1 border-b border-line px-4 py-3 text-[13px]">
         <div className="flex flex-wrap items-center gap-2">
           <code className={`${CODE_PATH} text-sm font-semibold`}>{path}</code>
@@ -88,8 +88,8 @@ export default function FileExplorer({ files, branches, log, edges, colors, focu
   }
 
   return (
-    <div className={`${card} grid overflow-hidden lg:grid-cols-[minmax(240px,300px)_minmax(0,1fr)]`}>
-      <ul aria-label="Project files" className="m-0 max-h-[640px] list-none overflow-y-auto p-1.5">
+    <div className={`${card} grid overflow-hidden md:grid-cols-[minmax(220px,300px)_minmax(0,1fr)]`}>
+      <ul aria-label="Project files" className="m-0 max-h-80 list-none overflow-y-auto p-1.5 md:max-h-[640px]">
         {visible.map((row) => {
           const here = presence[row.path] || [];
           const dim = focus && !row.isDir && !here.some((b) => b.userId === focus);
@@ -102,7 +102,7 @@ export default function FileExplorer({ files, branches, log, edges, colors, focu
                 aria-current={active ? 'true' : undefined}
                 onClick={() => (row.isDir ? toggle(row.path) : setPicked(row.path))}
                 style={{ paddingLeft: 8 + row.depth * 14 }}
-                className={`flex w-full cursor-pointer items-center gap-1.5 rounded-md border-0 py-1 pr-2 text-left font-mono text-[13px] ${focusRing} ${active ? 'bg-ink/[0.07] font-semibold text-ink' : 'bg-transparent text-ink hover:bg-ink/[0.04]'} ${dim ? 'opacity-40' : ''}`}
+                className={`flex w-full cursor-pointer items-center gap-1.5 rounded-md border-0 py-1 pr-2 text-left font-mono text-[13px] max-lg:min-h-11 ${focusRing} ${active ? 'bg-ink/[0.07] font-semibold text-ink' : 'bg-transparent text-ink hover:bg-ink/[0.04]'} ${dim ? 'opacity-40' : ''}`}
               >
                 {row.isDir && <Icon name="chevron" className={`size-3.5 text-dim transition-transform motion-reduce:transition-none ${collapsed.has(row.path) ? '' : 'rotate-90'}`} />}
                 <Icon name={row.isDir ? 'folder' : 'file'} className="size-4 text-dim" />

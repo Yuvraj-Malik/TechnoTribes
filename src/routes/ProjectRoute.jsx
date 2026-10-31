@@ -5,7 +5,7 @@ import { Link, useParams } from 'react-router-dom';
 import { api } from '../services/apiClient';
 import PageShell from '../components/layout/PageShell';
 import Alert from '../components/common/Alert';
-import { heading } from '../components/common/styles';
+import { focusRing, heading } from '../components/common/styles';
 import OwnerWorkspace from '../pages/owner/OwnerWorkspace';
 
 export default function ProjectRoute() {
@@ -45,7 +45,7 @@ export default function ProjectRoute() {
         <>
           <h1 className={heading}>{title}</h1>
           <p className="text-dim">{text}</p>
-          <Link to="/projects" className="text-sm font-semibold text-accent">Back to your projects</Link>
+          <Link to="/projects" className={`inline-flex min-h-11 items-center text-sm font-semibold text-accent ${focusRing}`}>Back to your projects</Link>
         </>
       )}
     </PageShell>

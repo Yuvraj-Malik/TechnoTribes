@@ -2,7 +2,7 @@
 -- ONE-PASTE SETUP: everything in supabase/migrations, in order.
 -- Use this if you are not using the Supabase CLI: Supabase dashboard ->
 -- SQL Editor -> New query -> paste this whole file -> Run. Run it ONCE on
--- a fresh project. Generated from 001_init.sql + 002_rls.sql + 003_owner_workspace.sql.
+-- a fresh project. Generated from 001_init.sql + 002_rls.sql + 004_owner_workspace.sql.
 -- =====================================================================
 
 -- =====================================================================
@@ -419,7 +419,7 @@ alter publication supabase_realtime add table
 
 -- =====================================================================
 -- Owner workspace: teams, designations, owner agents and messages.
--- Runs automatically after 002_rls.sql.
+-- Runs automatically after the earlier migrations.
 -- =====================================================================
 
 -- team: the name of the team an admin leads (admins only).

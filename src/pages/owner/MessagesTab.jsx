@@ -19,7 +19,7 @@ function RecipientOption({ value, label, color, checked, onChange }) {
       <input type="radio" name="to" id={id} value={value} checked={checked} onChange={onChange} className="peer absolute inset-0 cursor-pointer opacity-0" />
       <label
         htmlFor={id}
-        className="flex cursor-pointer items-center gap-2 rounded-full border-[1.5px] border-line bg-surface px-3.5 py-1.5 text-sm peer-checked:border-accent peer-checked:font-semibold peer-focus-visible:outline-[3px] peer-focus-visible:outline-offset-2 peer-focus-visible:outline-mark peer-focus-visible:outline-solid"
+        className="flex cursor-pointer items-center gap-2 rounded-full border-[1.5px] border-line bg-surface px-3.5 py-1.5 text-sm max-lg:min-h-11 peer-checked:border-accent peer-checked:font-semibold peer-focus-visible:outline-[3px] peer-focus-visible:outline-offset-2 peer-focus-visible:outline-mark peer-focus-visible:outline-solid"
       >
         {color && <span aria-hidden="true" className="size-2 rounded-full" style={{ backgroundColor: color }} />}
         {label}
@@ -29,7 +29,7 @@ function RecipientOption({ value, label, color, checked, onChange }) {
 }
 
 export default function MessagesTab() {
-  const { data, projectId, colors } = useOwner();
+  const { data, projectId, base, colors } = useOwner();
   const sent = useProjectResource('messages/list');
   const [to, setTo] = useState('all');
   const [text, setText] = useState('');
@@ -64,7 +64,7 @@ export default function MessagesTab() {
       <>
         <PageHeader title="Messages">Write to one admin or to all of them.</PageHeader>
         <p className={`${card} m-0 px-6 py-8 text-center text-sm text-dim`}>
-          You can send messages once an admin joins. <Link to={`/projects/${projectId}/settings`} className="font-semibold text-accent">Create an admin code in Settings</Link>
+          You can send messages once an admin joins. <Link to={`${base}/settings`} className="font-semibold text-accent">Create an admin code in Settings</Link>
         </p>
       </>
     );
@@ -75,7 +75,7 @@ export default function MessagesTab() {
   return (
     <>
       <PageHeader title="Messages">Write to one admin or to all of them. They get a notification straight away.</PageHeader>
-      <div className="grid gap-7 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+      <div className="grid gap-7 md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
         <form onSubmit={onSubmit} className={`${card} self-start p-4`}>
           <fieldset className="m-0 mb-4 border-0 p-0">
             <legend className="mb-2 p-0 text-sm font-semibold">Send to</legend>
@@ -108,7 +108,7 @@ export default function MessagesTab() {
               {messages.map((message) => (
                 <li key={message.id} className={`${card} px-4 py-3`}>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Avatar name={message.senderName} className="size-6 text-[10px]!" />
+                    <Avatar name={message.senderName} className="size-7" />
                     <span className="text-sm font-semibold">To {message.to_all ? 'all admins' : message.recipientNames.join(', ')}</span>
                     <span className="ml-auto text-xs text-dim">{when(message.created_at)}</span>
                   </div>
