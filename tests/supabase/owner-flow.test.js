@@ -431,6 +431,53 @@ test('the investor sees plain progress and can ask for a change', async () => {
   assert.equal(requests[0].status, 'pending');
 });
 
+test('only managers can answer the investor, and only with rejected or done', async () => {
+  const { requests: [request] } = ok(await get(owner, 'observer/requests', { projectId }));
+  const answer = { requestId: request.id, status: 'done' };
+
+  for (const person of [investor, sam, stranger]) refused(await post(person, 'observer/request/respond', answer), 403);
+  refused(await post(owner, 'observer/request/respond', { ...answer, status: 'accepted' }), 400, /tasks\/assign/);
+  refused(await post(owner, 'observer/request/respond', { requestId: request.id }), 400);
+  refused(await post(owner, 'observer/request/respond', { ...answer, requestId: randomUUID() }), 404);
+
+  const { requests } = ok(await get(owner, 'observer/requests', { projectId }));
+  assert.equal(requests[0].status, 'pending');
+  assert.equal(requests[0].response, null);
+});
+
+test('the owner declines with a reply, and the investor hears back', async () => {
+  const { requests: [request] } = ok(await get(owner, 'observer/requests', { projectId }));
+  const answered = ok(await post(owner, 'observer/request/respond', {
+    requestId: request.id, status: 'rejected', response: 'Not before launch',
+  }));
+  assert.deepEqual(answered, { requestId: request.id, status: 'rejected' });
+
+  const { myRequests } = ok(await get(investor, 'observer/feed', { projectId }));
+  assert.equal(myRequests[0].status, 'rejected');
+  assert.equal(myRequests[0].response, 'Not before launch');
+  assert.equal(myRequests[0].admin_id, owner.id);
+
+  const { notifications } = ok(await get(investor, 'notifications/list', { projectId }));
+  const [note] = notifications.filter((n) => n.kind === 'request_rejected');
+  assert.equal(note.title, 'Your request was declined');
+  assert.equal(note.body, 'Not before launch');
+});
+
+test('an admin can mark a request done, with no reply needed', async () => {
+  const { request } = ok(await post(investor, 'observer/request', { projectId, message: 'Add our logo to the footer' }));
+  ok(await post(priya, 'observer/request/respond', { requestId: request.id, status: 'done', response: '' }));
+
+  const { requests } = ok(await get(owner, 'observer/requests', { projectId }));
+  assert.equal(requests[0].status, 'done');
+  assert.equal(requests[0].response, null);
+  assert.equal(requests[0].admin_id, priya.id);
+
+  const { notifications } = ok(await get(investor, 'notifications/list', { projectId }));
+  const [note] = notifications.filter((n) => n.kind === 'request_done');
+  assert.equal(note.title, 'Your request is done');
+  assert.equal(note.body, null);
+});
+
 test('live updates reach the owner over Supabase Realtime', async () => {
   // Realtime takes a few seconds to come back after a database reset, so the
   // change repeats until an event lands. A real fault still fails at the timeout.

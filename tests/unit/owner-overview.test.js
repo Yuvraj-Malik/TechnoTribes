@@ -38,6 +38,7 @@ test('out of date work, people and investor requests all appear', () => {
   assert.deepEqual(items.map((i) => i.kind), ['outdated', 'admin', 'join', 'investor']);
   assert.equal(items[1].userId, 'c');
   assert.equal(items[2].requestId, 'j1');
+  assert.equal(items[3].requestId, 'r1');
 });
 
 test('the status line reads naturally for one and for many', () => {

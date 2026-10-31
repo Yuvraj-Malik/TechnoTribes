@@ -1,8 +1,11 @@
 // The first screen: how the project stands, what needs the owner, and who is on it.
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { api } from '../../services/apiClient';
 import { useOwner } from '../../features/projects/ownerContext';
 import { buildOrg, statusLine } from '../../features/projects/overviewModel';
 import AgentStatus from '../../components/agents/AgentStatus';
+import Alert from '../../components/common/Alert';
 import Avatar from '../../components/common/Avatar';
 import PageHeader from '../../components/common/PageHeader';
 import { card, focusRing, sectionTitle } from '../../components/common/styles';
@@ -67,11 +70,20 @@ function TeamRows({ org, colors }) {
 }
 
 export default function OverviewTab() {
-  const { data, projectId, base, me, version, needsYou, withAdmins, colors, act, decide } = useOwner();
+  const { data, projectId, base, me, version, needsYou, withAdmins, colors, act, decide, reload } = useOwner();
   const { project, members, queue, log } = data;
+  const [notice, setNotice] = useState('');
   const org = buildOrg(members);
   const inReview = (queue.buckets || []).reduce((sum, b) => sum + (b.mergeRequests?.length || 0), 0);
   const working = members.flatMap((m) => m.agents || []).filter((a) => a.status === 'working').length;
+
+  // A failed reply throws, so the form can show why next to the text the owner wrote.
+  async function replyToInvestor(requestId, status, response) {
+    setNotice('');
+    await api('observer/request/respond', { method: 'POST', body: { requestId, status, response } });
+    setNotice(`${status === 'done' ? 'Marked done' : 'Declined'}. The investor has been told.`);
+    await reload();
+  }
 
   return (
     <>
@@ -88,11 +100,13 @@ export default function OverviewTab() {
       <div className="grid gap-7 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-7">
           <Section title="Needs you">
+            <Alert tone="ok">{notice}</Alert>
             <NeedsYouList
               items={needsYou}
               onAdmin={(userId, approve) => act('projects/admins/approve', { projectId, userId, approve })}
               onJoin={(requestId, accept) => act('projects/join-request/respond', { requestId, accept })}
               onDecide={decide}
+              onReply={replyToInvestor}
             />
           </Section>
           <Section title="Admins and teams" link={{ to: `${base}/team`, label: 'See everyone' }}>

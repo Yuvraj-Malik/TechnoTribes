@@ -79,7 +79,7 @@ export function buildNeedsYou({ members = [], joinRequests = [], queue = {}, req
 
   for (const r of requests) {
     if (r.status === 'pending') {
-      items.push({ id: `investor-${r.id}`, kind: 'investor', tone: 'accent', label: 'Investor', text: `Asked for: ${r.message}` });
+      items.push({ id: `investor-${r.id}`, kind: 'investor', tone: 'accent', label: 'Investor', text: `Asked for: ${r.message}`, requestId: r.id });
     }
   }
 
