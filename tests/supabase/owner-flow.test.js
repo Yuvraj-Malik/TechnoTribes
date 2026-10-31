@@ -94,7 +94,7 @@ async function runBuilder(person, path, summary, extra = {}) {
 
 // Open Realtime sockets would keep the test process alive.
 after(() => {
-  [owner, priya, rohan, sam, meera, investor, stranger].forEach((person) => person?.client.realtime.disconnect());
+  [owner, priya, rohan, sam, meera, investor, stranger, late].forEach((person) => person?.client.realtime.disconnect());
 });
 
 let projectId;
@@ -106,6 +106,7 @@ let sam;
 let meera;
 let investor;
 let stranger;
+let late;
 
 test('setting up: real accounts sign in through Supabase Auth', async () => {
   [owner, priya, rohan, sam, meera, investor, stranger] = await Promise.all([
@@ -234,6 +235,34 @@ test('row-level security keeps direct reads private', async () => {
   assert.equal(await read(investor, 'project_state'), 0);
   assert.equal(await read(investor, 'moderator_log'), 0);
   assert.equal(await read(stranger, 'project_members'), 0);
+});
+
+test('the admin screen gets its role and only that admin\'s messages, newest first', async () => {
+  const me = ok(await get(priya, 'auth/me'));
+  const membership = me.projects.find((p) => p.projectId === projectId);
+  assert.equal(membership.role, 'admin');
+  assert.equal(membership.status, 'active');
+  assert.equal(membership.name, 'Cafe orders');
+
+  ok(await post(owner, 'messages/send', { projectId, to: priya.id, text: 'Only for Priya' }));
+
+  const { messages } = ok(await get(priya, 'messages/list', { projectId }));
+  assert.deepEqual(messages.map((m) => m.text), ['Only for Priya', 'Launch moved to Friday']);
+  assert.deepEqual(messages.map((m) => m.to_all), [false, true]);
+  assert.ok(messages.every((m) => m.senderName === 'Aarav Mehta'));
+
+  const forRohan = ok(await get(rohan, 'messages/list', { projectId }));
+  assert.ok(forRohan.messages.every((m) => m.text !== 'Only for Priya'));
+});
+
+test('an admin still waiting for approval cannot read messages', async () => {
+  late = await signUp('late', 'Lena Fox');
+  const { code } = ok(await post(owner, 'projects/admin-code', { projectId }));
+  ok(await post(late, 'projects/join', { code }));
+
+  const membership = ok(await get(late, 'auth/me')).projects.find((p) => p.projectId === projectId);
+  assert.equal(membership.status, 'pending');
+  refused(await get(late, 'messages/list', { projectId }), 403);
 });
 
 test('nobody outside the project can read it through the API', async () => {

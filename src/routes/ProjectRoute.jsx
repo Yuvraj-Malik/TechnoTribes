@@ -7,6 +7,7 @@ import PageShell from '../components/layout/PageShell';
 import Alert from '../components/common/Alert';
 import { focusRing, heading } from '../components/common/styles';
 import OwnerWorkspace from '../pages/owner/OwnerWorkspace';
+import AdminMessages from '../pages/admin/AdminMessages';
 
 export default function ProjectRoute() {
   const { projectId } = useParams();
@@ -25,6 +26,9 @@ export default function ProjectRoute() {
 
   if (membership?.role === 'owner' && membership.status === 'active') {
     return <OwnerWorkspace key={projectId} projectId={projectId} />;
+  }
+  if (membership?.role === 'admin' && membership.status === 'active') {
+    return <AdminMessages key={projectId} projectId={projectId} projectName={membership.name} />;
   }
 
   let title = "You're not part of this project";
