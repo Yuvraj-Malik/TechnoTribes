@@ -7,7 +7,7 @@ export default function ThemeToggle() {
     <button
       type="button"
       onClick={toggle}
-      className={`cursor-pointer rounded-full border border-line bg-surface px-3.5 py-2 text-[13px] font-medium text-dim ${focusRing}`}
+      className={`min-h-11 shrink-0 cursor-pointer rounded-full border border-line bg-surface px-3.5 text-[13px] font-medium text-dim ${focusRing}`}
     >
       {dark ? 'Light mode' : 'Dark mode'}
     </button>

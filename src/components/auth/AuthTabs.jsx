@@ -17,7 +17,7 @@ export default function AuthTabs({ mode, onChange }) {
             role="tab"
             aria-selected={selected}
             onClick={() => onChange(tab.id)}
-            className={`cursor-pointer rounded-full border-0 px-[18px] py-2 text-sm font-semibold ${
+            className={`min-h-11 cursor-pointer rounded-full border-0 px-4 text-sm font-semibold sm:px-[18px] ${
               selected ? 'bg-accent text-accent-ink' : 'bg-transparent text-dim'
             } ${focusRing}`}
           >

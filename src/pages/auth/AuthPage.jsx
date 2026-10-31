@@ -160,7 +160,7 @@ export default function AuthPage({ initialMode = 'login' }) {
         )}
 
         <Collapse open={mode === 'login'}>
-          <div className="mb-3.5 text-right">
+          <div className="-mt-2 mb-2 flex justify-end">
             <button type="button" className={linkButton} onClick={() => setMode('forgot')}>
               Forgot password?
             </button>
@@ -171,7 +171,7 @@ export default function AuthPage({ initialMode = 'login' }) {
           {busy ? copy.busy : copy.submit}
         </button>
 
-        <div className="mt-4 flex justify-between gap-3 text-sm text-dim">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 text-sm text-dim">
           {mode === 'login' && (
             <>
               <span>New to Buildify?</span>

@@ -26,7 +26,7 @@ export default function ProjectsHome() {
         <Logo />
         <div className="flex items-center gap-3">
           <ThemeToggle />
-          <button type="button" onClick={signOut} className={`cursor-pointer rounded-full border border-line bg-surface px-3.5 py-2 text-[13px] font-medium text-dim ${focusRing}`}>
+          <button type="button" onClick={signOut} className={`min-h-11 cursor-pointer rounded-full border border-line bg-surface px-3.5 text-[13px] font-medium text-dim ${focusRing}`}>
             Sign out
           </button>
         </div>

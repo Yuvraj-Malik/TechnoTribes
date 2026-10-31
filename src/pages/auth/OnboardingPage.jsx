@@ -133,7 +133,7 @@ export default function OnboardingPage() {
   return (
     <AuthLayout
       top={(
-        <button type="button" onClick={signOut} className={`cursor-pointer border-0 bg-transparent p-0 text-sm font-semibold text-dim underline ${focusRing}`}>
+        <button type="button" onClick={signOut} className={`inline-flex min-h-11 cursor-pointer items-center border-0 bg-transparent p-0 text-sm font-semibold text-dim underline ${focusRing}`}>
           Sign out
         </button>
       )}
@@ -146,7 +146,7 @@ export default function OnboardingPage() {
           <p className={subheading}>Your account is ready. Choose your role to finish setup.</p>
           <Alert tone="error">{formError}</Alert>
           <form onSubmit={onSubmit} noValidate>
-            <fieldset className="m-0 mb-[18px] grid grid-cols-2 gap-2.5 border-0 p-0">
+            <fieldset className="m-0 mb-[18px] grid grid-cols-1 gap-2.5 border-0 p-0 min-[400px]:grid-cols-2">
               <legend className="mb-2 p-0 text-sm font-semibold">I am joining as</legend>
               {ROLES.map((r) => (
                 <RoleCard key={r.id} role={r} checked={role === r.id} onChange={() => setRole(r.id)} />

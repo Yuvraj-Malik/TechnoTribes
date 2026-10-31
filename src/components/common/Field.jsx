@@ -29,7 +29,7 @@ const Field = forwardRef(function Field(
             type="button"
             onClick={() => setVisible((v) => !v)}
             aria-label={visible ? 'Hide password' : 'Show password'}
-            className={`absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer border-0 bg-transparent p-1.5 text-[13px] font-semibold text-accent ${focusRing}`}
+            className={`absolute top-1/2 right-1 min-h-11 min-w-11 -translate-y-1/2 cursor-pointer rounded-md border-0 bg-transparent px-2.5 text-[13px] font-semibold text-accent ${focusRing}`}
           >
             {visible ? 'Hide' : 'Show'}
           </button>
