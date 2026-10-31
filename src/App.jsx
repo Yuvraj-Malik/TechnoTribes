@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { HomeRedirect, PublicOnly, RequireAuth } from './routes/guards';
+import ProjectRoute from './routes/ProjectRoute';
 import AuthPage from './pages/auth/AuthPage';
 import AuthCallbackPage from './pages/auth/AuthCallbackPage';
 import ResetPasswordPage from './pages/auth/ResetPasswordPage';
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/onboarding" element={<RequireAuth><OnboardingPage /></RequireAuth>} />
           <Route path="/projects" element={<RequireAuth><ProjectsHome /></RequireAuth>} />
+          <Route path="/projects/:projectId/*" element={<RequireAuth><ProjectRoute /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>

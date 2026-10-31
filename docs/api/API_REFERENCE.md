@@ -10,7 +10,7 @@ Content-Type: application/json
 Errors always come back as `{ "error": "plain message", "details": {...} }` with these status codes:
 `400` bad input · `401` not signed in · `403` wrong role · `404` not found · `409` conflict / overlap / already done · `422` agent context incomplete · `502/504` Claude problem.
 
-**Roles:** `owner` (created the project) · `admin` · `worker` · `observer`. "Managers" = owner + admin. "Engineers" = admin + worker (they have their own Builder + Critic). "Insiders" = owner + admin + worker.
+**Roles:** `owner` (created the project) · `admin` · `worker` · `observer`. "Managers" = owner + admin. "Engineers" = owner + admin + worker (they have their own Builder + Critic). "Insiders" = owner + admin + worker.
 
 ---
 
@@ -36,6 +36,7 @@ Shared (change carefully, tell the team): `api/index.js` (router), `api/_lib/htt
 | GET | `/api/health` | anyone | | `{ ok }` |
 | GET | `/api/auth/me` | signed in | | `{ user, projects: [{projectId, role, status, name}] }` |
 | POST | `/api/projects/create` | signed in | `{ name, description?, brief?, repo?: {owner, name, branch} }` | `{ project, observerCode }`. Creator becomes owner |
+| POST | `/api/projects/update` | owner | `{ projectId, name?, description?, repo?: {owner, name, branch} }` | `{ project }` |
 | GET | `/api/projects/get` | everyone | `?projectId` | `{ project, role }` (observer code only for owner) |
 | POST | `/api/projects/observer-code` | owner | `{ projectId }` | `{ observerCode }`. Old code stops working |
 | POST | `/api/projects/admin-code` | owner | `{ projectId, expiresInDays? }` | `{ code, expiresAt }` |
@@ -44,7 +45,8 @@ Shared (change carefully, tell the team): `api/index.js` (router), `api/_lib/htt
 | POST | `/api/projects/join-request` | signed in | `{ projectId, message? }` | `{ request }`. Managers notified |
 | POST | `/api/projects/join-request/respond` | managers | `{ requestId, accept }` | `{ accepted }` |
 | POST | `/api/projects/members/add` | managers | `{ projectId, email }` | adds a worker directly |
-| GET | `/api/projects/members` | insiders | `?projectId` | `{ members (with agents), joinRequests }` |
+| POST | `/api/projects/members/update` | managers | `{ projectId, userId, designation?, team?, leadId? }` | `team` is for admins, `leadId` (the admin they report to) is for workers |
+| GET | `/api/projects/members` | insiders | `?projectId` | `{ members (with agents, team, lead_id, designation), joinRequests }` |
 | POST | `/api/projects/brief/preview` | managers | `{ projectId, brief }` | `{ changedFields, impact }`. **What would this affect?** (nothing saved) |
 | POST | `/api/projects/brief` | managers | `{ projectId, brief, reason? }` | `{ version, impact }`. New version, dependent work marked stale |
 | GET | `/api/tasks/list` | insiders | `?projectId&mine=true` | `{ tasks }` |
@@ -52,6 +54,8 @@ Shared (change carefully, tell the team): `api/index.js` (router), `api/_lib/htt
 | POST | `/api/tasks/status` | assignee / managers | `{ taskId, status }` | |
 | GET | `/api/notifications/list` | signed in | `?projectId&unread=true` | `{ notifications }` |
 | POST | `/api/notifications/read` | signed in | `{ ids }` or `{ all: true }` | `{ updated }` |
+| POST | `/api/messages/send` | owner | `{ projectId, to: "all" or userId, text }` | `{ message }`. Each admin it goes to is notified |
+| GET | `/api/messages/list` | managers | `?projectId` | `{ messages }`. Owner sees all, an admin sees those sent to them |
 | GET | `/api/history/list` | insiders | `?projectId&limit&before` | your own history only |
 | POST | `/api/history/delete` | owner of entries | `{ ids }` | `{ deleted }` |
 
@@ -59,6 +63,7 @@ Shared (change carefully, tell the team): `api/index.js` (router), `api/_lib/htt
 
 | Method | Endpoint | Who | Body | Returns |
 |---|---|---|---|---|
+| GET | `/api/agents/proposals` | engineers | `?projectId` | `{ proposals }`. Your own, newest first, each with its latest `review` |
 | POST | `/api/agents/builder/run` | engineers | `{ projectId, instruction, targets?: [paths], taskId?, redirectFromMergeRequestId?, force? }` | `{ proposal, basedOnVersion, overlap }` |
 | POST | `/api/agents/critic/review` | proposal author | `{ proposalId }` | `{ review: { verdict, score, summary, issues } }` |
 | POST | `/api/agents/critic/prioritize` | managers | `{ projectId }` | `{ buckets }` ranked, with reason + recommendation |

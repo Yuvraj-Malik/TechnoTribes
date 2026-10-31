@@ -15,6 +15,7 @@ import * as reviews from '../server/reviews.js';
 import * as observer from '../server/observer.js';
 import * as history from '../server/history.js';
 import * as notifications from '../server/notifications.js';
+import * as messages from '../server/messages.js';
 import * as github from '../server/github.js';
 
 export const routes = {
@@ -25,6 +26,7 @@ export const routes = {
 
   // Projects, codes, members, brief
   'POST projects/create': projects.create,
+  'POST projects/update': projects.update,
   'GET projects/get': projects.get,
   'POST projects/observer-code': projects.regenerateObserverCode,
   'POST projects/admin-code': projects.createAdminCode,
@@ -33,6 +35,7 @@ export const routes = {
   'POST projects/join-request': projects.requestToJoin,
   'POST projects/join-request/respond': projects.respondJoinRequest,
   'POST projects/members/add': projects.addWorker,
+  'POST projects/members/update': projects.updateMember,
   'GET projects/members': projects.members,
   'POST projects/brief/preview': projects.previewBrief,
   'POST projects/brief': projects.updateBrief,
@@ -43,6 +46,7 @@ export const routes = {
   'POST tasks/status': tasks.setStatus,
 
   // Agents
+  'GET agents/proposals': builder.proposals,
   'POST agents/builder/run': builder.run,
   'POST agents/critic/review': critic.review,
   'POST agents/critic/prioritize': critic.prioritize,
@@ -78,6 +82,10 @@ export const routes = {
   // Notifications
   'GET notifications/list': notifications.list,
   'POST notifications/read': notifications.markRead,
+
+  // Messages
+  'POST messages/send': messages.send,
+  'GET messages/list': messages.list,
 
   // GitHub (optional)
   'GET github/tree': github.tree,

@@ -56,6 +56,18 @@ export function validateBuilderOutput(o) {
   };
 }
 
+// GET /api/agents/proposals?projectId=   -> your own proposals, newest first, with the latest Critic review
+export async function proposals({ user, query }) {
+  await requireRole(user.id, query.projectId, ENGINEERS);
+  const rows = await q(db.from('proposals').select('*')
+    .eq('project_id', query.projectId).eq('user_id', user.id)
+    .order('created_at', { ascending: false }).limit(50));
+  const reviews = rows.length
+    ? await q(db.from('critic_reviews').select('*').in('proposal_id', rows.map((p) => p.id)).order('created_at', { ascending: false }))
+    : [];
+  return { proposals: rows.map((p) => ({ ...p, review: reviews.find((r) => r.proposal_id === p.id) || null })) };
+}
+
 // POST /api/agents/builder/run
 // { projectId, instruction, targets?: [paths], taskId?, redirectFromMergeRequestId?, force? }
 // 409 -> another agent is already on the same files (send force:true to go ahead anyway)

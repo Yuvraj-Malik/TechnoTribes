@@ -30,7 +30,7 @@ This guide says what code goes in each folder of the project.
 
 ## Update: how the backend is actually laid out
 
-Vercel's free plan allows only 12 serverless functions, and we have 45 endpoints. So the whole backend runs as **one** function:
+Vercel's free plan allows only 12 serverless functions, and we have 50 endpoints. So the whole backend runs as **one** function:
 
 - `api/index.js`: the router. `vercel.json` sends every `/api/<route>` here.
 - `api/_lib/`: shared server logic (Claude, Supabase, permissions, Moderator, coordination, dependency graph, bucketing). The underscore stops Vercel from turning it into separate functions.
@@ -140,7 +140,7 @@ App entry point, providers and router.
 |---|---|
 | `auth/` | Login, Signup, EnterAdminCode, EnterObserverCode |
 | `projects/` | ProjectList, CreateProject, JoinRequest |
-| `owner/` | OwnerDashboard, ManageAdmins, ObserverCodeSettings |
+| `owner/` | OwnerWorkspace (sidebar + one route per tab): Overview, Brief, Code, Team, My agents, Messages, Settings |
 | `admin/` | AdminDashboard, ManageWorkers, AssignTasks, ReviewQueue (buckets + priority), ObserverRequests |
 | `worker/` | WorkerWorkspace (own Builder + Critic), MyHistory, SubmitMergeRequest |
 | `observer/` | ObserverHome (progress), CurrentSite, Roadmap, RequestChange. Plain language only, no technical detail |

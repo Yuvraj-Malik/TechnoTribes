@@ -4,7 +4,7 @@ import { HttpError } from './errors.js';
 
 export const OWNER = ['owner'];
 export const MANAGERS = ['owner', 'admin'];          // manage members, tasks, reviews
-export const ENGINEERS = ['admin', 'worker'];        // have their own Builder + Critic
+export const ENGINEERS = ['owner', 'admin', 'worker']; // have their own Builder + Critic
 export const INSIDERS = ['owner', 'admin', 'worker'];
 export const EVERYONE = ['owner', 'admin', 'worker', 'observer'];
 

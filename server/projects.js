@@ -2,7 +2,7 @@
 import { db, q } from '../api/_lib/supabase-admin.js';
 import { HttpError } from '../api/_lib/errors.js';
 import { requireFields, displayName } from '../api/_lib/http.js';
-import { requireRole, OWNER, MANAGERS, INSIDERS, EVERYONE } from '../api/_lib/permissions.js';
+import { requireRole, getMembership, OWNER, MANAGERS, INSIDERS, EVERYONE } from '../api/_lib/permissions.js';
 import { makeCode } from '../api/_lib/codes.js';
 import { notify, managersOf, ownerOf, ensureAgents, addHistory, namesFor } from '../api/_lib/log.js';
 import { commitChange, getState } from '../api/_lib/moderator.js';
@@ -22,9 +22,29 @@ export async function create({ user, body }) {
     default_branch: body.repo?.branch || 'main',
   }).select().single());
   await q(db.from('project_members').insert({ project_id: project.id, user_id: user.id, role: 'owner', status: 'active' }));
+  await ensureAgents(project.id, user.id);
   await q(db.from('project_state').insert({ project_id: project.id, brief: body.brief || {}, files: {} }));
   await addHistory(project.id, user.id, 'project_created', { name: project.name });
   return { project, observerCode: project.observer_code };
+}
+
+// POST /api/projects/update  { projectId, name?, description?, repo?: {owner,name,branch} }   (owner)
+export async function update({ user, body }) {
+  requireFields(body, ['projectId']);
+  await requireRole(user.id, body.projectId, OWNER);
+  const changes = {};
+  if (body.name !== undefined) {
+    changes.name = String(body.name).trim().slice(0, 120);
+    if (!changes.name) throw new HttpError(400, 'The project needs a name');
+  }
+  if (body.description !== undefined) changes.description = String(body.description).trim() || null;
+  if (body.repo !== undefined) {
+    changes.repo_owner = String(body.repo?.owner || '').trim() || null;
+    changes.repo_name = String(body.repo?.name || '').trim() || null;
+    changes.default_branch = String(body.repo?.branch || '').trim() || 'main';
+  }
+  if (!Object.keys(changes).length) throw new HttpError(400, 'Nothing to update');
+  return { project: await q(db.from('projects').update(changes).eq('id', body.projectId).select().single()) };
 }
 
 // GET /api/projects/get?projectId=
@@ -163,10 +183,39 @@ export async function addWorker({ user, body }) {
   return { userId: profile.id, role: 'worker' };
 }
 
+// POST /api/projects/members/update  { projectId, userId, designation?, team?, leadId? }   (owner/admin)
+//   designation -> job title, for anyone
+//   team        -> name of the team an admin leads
+//   leadId      -> the admin a worker reports to
+export async function updateMember({ user, body }) {
+  requireFields(body, ['projectId', 'userId']);
+  await requireRole(user.id, body.projectId, MANAGERS);
+  const member = await getMembership(body.userId, body.projectId);
+  if (!member) throw new HttpError(404, 'This person is not an active member of the project');
+
+  const changes = {};
+  if (body.designation !== undefined) changes.designation = String(body.designation || '').trim().slice(0, 80) || null;
+  if (body.team !== undefined) {
+    if (member.role !== 'admin') throw new HttpError(400, 'Only admins lead a team');
+    changes.team = String(body.team || '').trim().slice(0, 60) || null;
+  }
+  if (body.leadId !== undefined) {
+    if (member.role !== 'worker') throw new HttpError(400, 'Only workers report to an admin');
+    if (body.leadId) {
+      const lead = await getMembership(body.leadId, body.projectId);
+      if (lead?.role !== 'admin') throw new HttpError(400, 'Workers can only report to an active admin');
+    }
+    changes.lead_id = body.leadId || null;
+  }
+  if (!Object.keys(changes).length) throw new HttpError(400, 'Nothing to update');
+  await q(db.from('project_members').update(changes).eq('id', member.id));
+  return { userId: body.userId, ...changes };
+}
+
 // GET /api/projects/members?projectId=   (insiders)
 export async function members({ user, query }) {
   const me = await requireRole(user.id, query.projectId, INSIDERS);
-  const rows = await q(db.from('project_members').select('user_id,role,status,created_at').eq('project_id', query.projectId));
+  const rows = await q(db.from('project_members').select('user_id,role,status,team,lead_id,designation,created_at').eq('project_id', query.projectId));
   const agents = await q(db.from('agents').select('id,user_id,kind,status,current_activity,updated_at').eq('project_id', query.projectId));
   const requests = ['owner', 'admin'].includes(me.role)
     ? await q(db.from('join_requests').select('*').eq('project_id', query.projectId).eq('status', 'pending'))

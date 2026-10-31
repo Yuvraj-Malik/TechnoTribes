@@ -17,6 +17,7 @@ npm run db:push       # creates all tables, triggers and access rules
 `db:push` runs everything in `supabase/migrations/` in order:
 - `001_init.sql`: 19 tables, the profile-on-signup trigger, the permanent Moderator log
 - `002_rls.sql`: row-level security and Realtime
+- `003_owner_workspace.sql`: teams and designations, the owner's Builder + Critic, and owner-to-admin messages
 
 ### 2. Turn on Google sign-in
 1. **Google Cloud Console** → APIs & Services → **OAuth consent screen**: set it up (External, app name, your email).

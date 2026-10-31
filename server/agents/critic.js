@@ -146,8 +146,8 @@ export async function prioritize({ user, body }) {
   ].filter(Boolean).join('; ') || 'no urgency signals']));
   let recommendations = {};
 
-  // The admin's Critic refines the order and explains it.
-  if (['admin'].includes(me.role)) {
+  // The reviewer's own Critic refines the order and explains it.
+  if (ENGINEERS.includes(me.role)) {
     const agent = await getAgent(projectId, user.id, 'critic');
     await setAgentStatus(agent.id, 'working', 'Prioritizing the review queue');
     try {

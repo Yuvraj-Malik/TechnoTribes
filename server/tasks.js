@@ -21,7 +21,7 @@ export async function assign({ user, body }) {
   requireFields(body, ['projectId', 'assigneeId', 'title']);
   await requireRole(user.id, body.projectId, MANAGERS);
   const assignee = await getMembership(body.assigneeId, body.projectId);
-  if (!assignee || !ENGINEERS.includes(assignee.role)) throw new HttpError(400, 'Tasks can only be assigned to admins or workers');
+  if (!assignee || !ENGINEERS.includes(assignee.role)) throw new HttpError(400, 'Tasks can only be assigned to people with agents');
 
   let targets;
   try { targets = asArray(body.targets).map((p) => fileKey(normalizePath(p))); } catch (e) { throw new HttpError(400, e.message); }

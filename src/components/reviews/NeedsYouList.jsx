@@ -1,0 +1,103 @@
+// The owner's inbox: what is waiting on them, most urgent first. Reviews open in
+// place, so the owner can read the change and decide without leaving the list.
+import { useState } from 'react';
+import ActionButton from '../common/ActionButton';
+import Badge from '../common/Badge';
+import { card, focusRing, outlineButton, quietButton } from '../common/styles';
+
+function RequestReview({ request, onDecide }) {
+  const [sendingBack, setSendingBack] = useState(false);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const review = request.criticReviews?.[0];
+  const summary = request.proposals?.[0]?.summary;
+
+  async function sendBack(e) {
+    e.preventDefault();
+    setBusy(true);
+    await onDecide(request.id, 'redirect', note.trim());
+    setBusy(false);
+  }
+
+  return (
+    <div className="rounded-lg border border-line bg-bg p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold">{request.submittedByName || 'A team member'}</span>
+        {review && <Badge tone={review.verdict === 'approve' ? 'accent' : 'warn'}>Critic: {review.verdict}, {review.score}/100</Badge>}
+      </div>
+      {summary && <p className="m-0 mt-1 text-sm">{summary}</p>}
+      <ul className="m-0 mt-2 list-none space-y-0.5 p-0 font-mono text-xs text-dim">
+        {(request.change_list || []).map((change) => (
+          <li key={`${change.proposalId}-${change.path}`} className="break-all">{change.action} {change.path}</li>
+        ))}
+      </ul>
+      {sendingBack ? (
+        <form onSubmit={sendBack} className="mt-3 flex flex-wrap items-center gap-2">
+          <input
+            aria-label={`What should ${request.submittedByName || 'they'} do instead?`}
+            placeholder="What should they do instead?"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            required
+            className={`min-w-0 flex-1 basis-48 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink ${focusRing}`}
+          />
+          <button type="submit" disabled={busy} className={outlineButton}>Send back</button>
+          <button type="button" className={quietButton} onClick={() => setSendingBack(false)}>Cancel</button>
+        </form>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-1">
+          <ActionButton onAction={() => onDecide(request.id, 'approve')}>Approve</ActionButton>
+          <button type="button" className={quietButton} onClick={() => setSendingBack(true)}>Send back</button>
+          <ActionButton variant="quiet" onAction={() => onDecide(request.id, 'reject')}>Reject</ActionButton>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Item({ item, onAdmin, onJoin, onDecide }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className="px-4 py-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Badge tone={item.tone}>{item.label}</Badge>
+        <span className="min-w-48 flex-1 text-sm">{item.text}</span>
+        <span className="flex gap-1">
+          {item.kind === 'admin' && (
+            <>
+              <ActionButton onAction={() => onAdmin(item.userId, true)}>Approve</ActionButton>
+              <ActionButton variant="quiet" onAction={() => onAdmin(item.userId, false)}>Decline</ActionButton>
+            </>
+          )}
+          {item.kind === 'join' && (
+            <>
+              <ActionButton onAction={() => onJoin(item.requestId, true)}>Accept</ActionButton>
+              <ActionButton variant="quiet" onAction={() => onJoin(item.requestId, false)}>Decline</ActionButton>
+            </>
+          )}
+          {item.mergeRequests && (
+            <button type="button" aria-expanded={open} className={outlineButton} onClick={() => setOpen(!open)}>
+              {open ? 'Close' : 'Review'}
+            </button>
+          )}
+        </span>
+      </div>
+      {open && (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {item.mergeRequests.map((request) => <RequestReview key={request.id} request={request} onDecide={onDecide} />)}
+        </div>
+      )}
+    </li>
+  );
+}
+
+export default function NeedsYouList({ items, onAdmin, onJoin, onDecide }) {
+  if (!items.length) {
+    return <p className={`${card} m-0 px-4 py-6 text-center text-sm text-dim`}>You're all caught up.</p>;
+  }
+  return (
+    <ul className={`${card} m-0 list-none divide-y divide-line p-0`}>
+      {items.map((item) => <Item key={item.id} item={item} onAdmin={onAdmin} onJoin={onJoin} onDecide={onDecide} />)}
+    </ul>
+  );
+}

@@ -44,14 +44,16 @@ export default function ProjectsHome() {
       )}
       <ul className="m-0 grid list-none gap-3 p-0">
         {projects?.map((p) => (
-          <li key={p.projectId} className="flex items-center justify-between gap-3 rounded-[10px] border border-line bg-surface px-4 py-3.5">
-            <div>
-              <div className="font-semibold">{p.name}</div>
-              {p.description && <div className="text-sm text-dim">{p.description}</div>}
-            </div>
-            <span className="rounded-full border border-line px-3 py-1 text-[13px] text-dim">
-              {ROLE_LABEL[p.role]}{p.status === 'pending' ? ' (waiting for approval)' : ''}
-            </span>
+          <li key={p.projectId}>
+            <Link to={`/projects/${p.projectId}`} className={`flex items-center justify-between gap-3 rounded-[10px] border border-line bg-surface px-4 py-3.5 hover:border-accent ${focusRing}`}>
+              <div>
+                <div className="font-semibold">{p.name}</div>
+                {p.description && <div className="text-sm text-dim">{p.description}</div>}
+              </div>
+              <span className="rounded-full border border-line px-3 py-1 text-[13px] text-dim">
+                {ROLE_LABEL[p.role]}{p.status === 'pending' ? ' (waiting for approval)' : ''}
+              </span>
+            </Link>
           </li>
         ))}
       </ul>

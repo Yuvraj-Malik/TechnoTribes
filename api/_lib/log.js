@@ -31,7 +31,7 @@ export async function namesFor(userIds) {
   return Object.fromEntries(rows.map((r) => [r.id, r.display_name || r.email]));
 }
 
-// Every admin and worker gets one Builder and one Critic.
+// The owner, every admin and every worker get one Builder and one Critic.
 export async function ensureAgents(projectId, userId) {
   await q(db.from('agents').upsert(
     [
