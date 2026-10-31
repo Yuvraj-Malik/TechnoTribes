@@ -28,9 +28,21 @@ This guide says what code goes in each folder of the project.
 
 ---
 
-## `api/`: server side (Vercel serverless functions)
+## Update: how the backend is actually laid out
 
-Each `.js` file becomes an endpoint, e.g. `api/reviews/bucket.js` → `POST /api/reviews/bucket`.
+Vercel's free plan allows only 12 serverless functions, and we have 45 endpoints. So the whole backend runs as **one** function:
+
+- `api/index.js`: the router. `vercel.json` sends every `/api/<route>` here.
+- `api/_lib/`: shared server logic (Claude, Supabase, permissions, Moderator, coordination, dependency graph, bucketing). The underscore stops Vercel from turning it into separate functions.
+- `server/`: the endpoint handlers, one file per area (`projects.js`, `reviews.js`, `agents/builder.js`, ...).
+
+The empty `api/agents`, `api/coordination`, `api/reviews` (etc.) folders below are no longer used and can be deleted. The table below still describes what each area does; the code for it is in `server/<area>.js`. The full endpoint list and the 4-person split are in `docs/api/API_REFERENCE.md`.
+
+---
+
+## `api/`: server side (original plan)
+
+Originally each `.js` file was going to be its own endpoint, e.g. `api/reviews/bucket.js` → `POST /api/reviews/bucket`.
 
 ### `api/agents/builder/`
 The Builder agent: it writes code changes.
