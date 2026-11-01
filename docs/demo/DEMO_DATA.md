@@ -25,7 +25,7 @@ The fully filled project. Open it with the project ID, then:
 - **Arjun (admin):** Review has Kabir's "14-day free trial" submission waiting. Approving it merges into the live site, moves the task to done and tells Meera her request is done.
 - **Kabir (worker):** his agent planned "Make the features grid stack on phones" and is waiting for him to confirm; it warned him that Tara is editing the same files. My submissions shows the trial waiting and an earlier approved one.
 - **Tara (worker):** her agent finished the FAQ section; she can review the diff and submit it (it goes to Priya).
-- **Meera (observer):** plain-language updates, the live site (v3), and her requests: one done, one being worked on, one waiting.
+- **Meera (observer):** 3 of 7 pieces live as a brick wall, who is doing what, the project line and product map, the live site (v3), and her requests: one done, one being worked on, one waiting.
 
 ## Other projects
 
