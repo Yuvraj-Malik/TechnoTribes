@@ -122,3 +122,8 @@ test('the graph survives a cycle and traces impact both ways', () => {
   const impact = impactOf('b', line);
   assert.deepEqual([[...impact.dependsOn], [...impact.affects]], [['c'], ['a']]);
 });
+
+test('work paused for approval of a risky step stays on the branch map', () => {
+  const tasks = [{ id: 't', userId: 'u', userName: 'Kabir', text: 'Drop old data', status: 'needs_action_approval', createdAt: '2026-01-01' }];
+  assert.equal(buildBranches({ tasks }).length, 1);
+});

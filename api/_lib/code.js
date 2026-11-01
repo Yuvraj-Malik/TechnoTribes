@@ -1,7 +1,7 @@
 // What the Code page shows, worked out from the project's files, tasks and
 // merges. No database code here, so tests/unit can check these rules directly.
 
-const OPEN_TASKS = ['reading_context', 'checking_conflicts', 'needs_conflict_decision', 'planning', 'awaiting_plan_approval', 'working', 'done', 'needs_context_decision', 'sent_back', 'failed'];
+const OPEN_TASKS = ['reading_context', 'checking_conflicts', 'needs_conflict_decision', 'planning', 'awaiting_plan_approval', 'working', 'done', 'needs_context_decision', 'needs_action_approval', 'sent_back', 'failed'];
 const OPEN_SUBMISSIONS = ['pending', 'merge_conflict'];
 
 const LINK_PATTERNS = [
