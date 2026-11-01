@@ -96,7 +96,10 @@ export async function analyseImpact(projectId, changes, sourceDept, authorId, te
   const unaffected = [];
   const affectedDepts = new Set(other.map((c) => c.scope));
   const workHits = {};
-  const developers = people.filter((u) => u.isDeveloper);
+  // The owner counts while their own agent has a task, in that task's department.
+  const owner = people.find((u) => u.role === 'owner');
+  const ownerTask = owner && await activeTask(projectId, owner.id);
+  const developers = [...people.filter((u) => u.isDeveloper), ...(ownerTask ? [{ ...owner, department: ownerTask.department }] : [])];
   const actives = Object.fromEntries(await Promise.all(developers.map(async (u) => [u.id, await activeTask(projectId, u.id)])));
 
   for (const u of developers) {

@@ -102,7 +102,12 @@ Roles: **owner** (created the project; codes, departments, roles), **admin** (ma
 | POST | `/api/team/task/submit` | `teamWork.submit` |
 | POST | `/api/team/task/context-decision` | `teamWork.contextDecision` |
 | POST | `/api/team/task/rework` | `teamWork.rework` |
+| POST | `/api/team/task/critic` | `teamWork.critic` |
 | POST | `/api/team/agent/restart` | `teamWork.restartAgent` |
+| GET | `/api/team/messages` | `teamOwner.listMessages` |
+| POST | `/api/team/messages/send` | `teamOwner.sendMessage` |
+| POST | `/api/team/members/designation` | `teamOwner.setDesignation` |
+| GET | `/api/team/code` | `teamOwner.code` |
 | GET | `/api/team/workspace/files` | `teamWork.files` |
 | GET | `/api/team/workspace/file` | `teamWork.file` |
 | GET | `/api/team/workspace/bundle` | `teamWork.bundle` |

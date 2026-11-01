@@ -5,7 +5,7 @@
 import { HttpError } from '../api/_lib/errors.js';
 import { devTasks, suggestions, workSubmissions } from '../api/_lib/records.js';
 import { logEvent, notifyMany, toEvent } from '../api/_lib/activity.js';
-import { getDepartment, listDepartments, listPeople, requireDeveloper, teamActor } from '../api/_lib/team.js';
+import { getDepartment, listDepartments, listPeople, requireDeveloper, teamActor, workDepartment } from '../api/_lib/team.js';
 import {
   builtOnFor, getScopeVersions, guardrailConflicts, listSections, mentions, outdatedSince, relevantSections,
 } from '../api/_lib/context.js';
@@ -290,7 +290,7 @@ async function finishWork(t, edits, result, followUp) {
   const { diff: diffText, files } = await workspaceDiff(t.projectId, t.userId);
   t.summaryDraft = await draftSummary(t, { ...result, why: followUp && t.whyDraft ? t.whyDraft : result.why }, files, diffText);
   say(t, 'agent', followUp ? `Done: ${result.summary}` : `Finished. ${result.summary}`);
-  await saveTask(t, { status: 'done', summary: result.summary, whyDraft: followUp && t.whyDraft ? t.whyDraft : result.why, changedFiles: files, pendingAction: null });
+  await saveTask(t, { status: 'done', summary: result.summary, whyDraft: followUp && t.whyDraft ? t.whyDraft : result.why, changedFiles: files, critique: null, pendingAction: null });
   await taskLog(t, 'agent.edits', `Agent changed ${edits.length} file(s) in ${t.userName}'s workspace`, {
     files: edits.map((e) => e.path), summary: result.summary, followUp: followUp ?? null,
   });
@@ -413,7 +413,7 @@ export async function start(ctx) {
   await ensureWorkspace(projectId, actor.id);
   if (!prev || prev.status !== 'sent_back') await resetWorkspace(projectId, actor.id);
   const t = {
-    id: devTasks.newId(), projectId, userId: actor.id, userName: actor.name, department: actor.department, text,
+    id: devTasks.newId(), projectId, userId: actor.id, userName: actor.name, department: await workDepartment(projectId, actor, ctx.body.department), text,
     status: 'reading_context', relevantSectionIds: [], conflicts: [], plan: null, summary: '', whyDraft: '', changedFiles: [],
     contextAlert: null, builtOn: null, messages: [], submissionId: null, reviewNote: null, resumeStatus: null,
     assignmentId: assignment?.id ?? null, peers: [], createdAt: nowIso(), updatedAt: nowIso(),
@@ -476,6 +476,21 @@ export async function followUp(ctx) {
   say(t, 'developer', message);
   await taskLog(t, 'developer.followup', `${actor.name} asked for more changes: "${message}"`, { message });
   return step(t, () => workStep(t, message));
+}
+
+// POST /api/team/task/critic { projectId, taskId }
+// The Critic reads the finished changes and reports problems. It never edits anything.
+export async function critic(ctx) {
+  const { actor, projectId } = await devActor(ctx);
+  const t = await mustGet(ctx.body.taskId, actor);
+  if (!['done', 'sent_back'].includes(t.status)) throw new HttpError(409, 'The Critic reviews finished work');
+  const { diff: changes, files: changedFiles } = await workspaceDiff(projectId, actor.id);
+  if (!changedFiles.length) throw new HttpError(409, 'There are no changes to review');
+  const review = await getTeamAgent(projectId).critique({ ...(await agentInput(t, await sectionsOf(t))), diff: changes, changedFiles });
+  say(t, 'critic', review.summary);
+  await saveTask(t, { critique: { ...review, at: nowIso() } });
+  await taskLog(t, 'agent.critic', `Critic reviewed "${t.text}": ${review.issues.length} issue(s) found`, { review });
+  return t;
 }
 
 // POST /api/team/task/retry { projectId, taskId }
@@ -625,8 +640,8 @@ export async function rework(ctx) {
 // A fresh agent has no memory: it rebuilds what it knows from the context and the log only.
 export async function restartAgent(ctx) {
   const { actor, projectId } = await devActor(ctx);
-  const department = await getDepartment(projectId, actor.department);
   const t = await activeTask(projectId, actor.id);
+  const department = await getDepartment(projectId, await workDepartment(projectId, actor, t?.department));
   const [central, departmentSections, logRows] = await Promise.all([
     listSections(projectId, 'central'), listSections(projectId, department.id),
     q(db.from('activity_log').select('at,type,summary').eq('project_id', projectId)
@@ -688,12 +703,13 @@ export { listPeople };
 // reasons), the conflicts it caused and how they were resolved, and a timeline.
 export async function status(ctx) {
   const { actor, projectId } = await devActor(ctx);
-  const department = await getDepartment(projectId, actor.department);
   const [mine, myTasks, byMe] = await Promise.all([
     suggestions.list(projectId, { suggested_by: actor.id }, 200),
     devTasks.list(projectId, { user_id: actor.id }, 50),
     q(db.from('activity_log').select('*').eq('project_id', projectId).eq('actor_id', actor.id).order('id', { ascending: false }).limit(80)),
   ]);
+  // The owner has no department of their own: their area is their latest task's.
+  const department = await getDepartment(projectId, actor.department ?? (await activeTask(projectId, actor.id))?.department);
   const taskIds = myTasks.map((t) => t.id);
   const aboutMyTasks = taskIds.length
     ? await q(db.from('activity_log').select('*').eq('project_id', projectId).in('task_id', taskIds).order('id', { ascending: false }).limit(120))
@@ -739,13 +755,15 @@ export async function share(ctx) {
   const facts = t.summaryDraft ?? {};
   // Checkable facts are never taken from the edit: files come from the diff.
   const summary = { ...edited, changed: files, plannedButNotChanged: facts.plannedButNotChanged ?? [], checkedAt: new Date().toISOString() };
-  const suggestion = await createSuggestion(projectId, actor, {
-    scope: actor.department, taskId: t.id, files, basedOn: t.builtOn?.sections, why: `Finished: ${t.text}`, source: 'agent',
+  // The owner has no department of their own, so they share from the task's.
+  const sharer = { ...actor, department: t.department };
+  const suggestion = await createSuggestion(projectId, sharer, {
+    scope: t.department, taskId: t.id, files, basedOn: t.builtOn?.sections, why: `Finished: ${t.text}`, source: 'agent',
     changes: [{ op: 'add', kind: 'progress', title: t.text.slice(0, 120), content: renderSummary(summary) }],
   });
   const requests = [];
   for (const o of (summary.forOtherDepartments ?? []).filter((x) => x.send)) {
-    requests.push(await createRequest(projectId, actor, { toDepartment: o.department, title: String(o.need).slice(0, 120), body: `For "${t.text}": ${o.need}${o.files?.length ? ` (files: ${o.files.join(', ')})` : ''}`.slice(0, 600), fromTaskId: t.id }));
+    requests.push(await createRequest(projectId, sharer, { toDepartment: o.department, title: String(o.need).slice(0, 120), body: `For "${t.text}": ${o.need}${o.files?.length ? ` (files: ${o.files.join(', ')})` : ''}`.slice(0, 600), fromTaskId: t.id }));
   }
   t.shared = { suggestionId: suggestion.id, summary, requests: requests.map((r) => r.id), at: new Date().toISOString() };
   await saveTask(t);

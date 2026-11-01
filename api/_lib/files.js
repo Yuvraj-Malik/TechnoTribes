@@ -57,7 +57,8 @@ export async function resetWorkspace(projectId, userId) {
 }
 
 export async function ensureWorkspace(projectId, userId) {
-  const rows = await q(db.from('project_files').select('path').eq('project_id', projectId).eq('workspace', BASE(userId)).limit(1));
+  // A new project's base is empty, so also look for the developer's own files before starting over.
+  const rows = await q(db.from('project_files').select('path').eq('project_id', projectId).in('workspace', [BASE(userId), userId]).limit(1));
   if (!rows.length) await resetWorkspace(projectId, userId);
 }
 

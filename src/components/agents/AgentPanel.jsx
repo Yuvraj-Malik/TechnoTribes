@@ -267,9 +267,45 @@ function WhatIKnowCard({ data, onClose }) {
   );
 }
 
+const SEVERITY = { high: 'red', medium: 'amber', low: 'slate' };
+
+/** A second agent that only reads the finished changes and reports problems. */
+function CriticCard({ task, act, pending, simulated }) {
+  const review = task.critique;
+  return (
+    <Card className="!p-3">
+      <PanelTitle right={simulated && <SimulatedTag />}>Critic</PanelTitle>
+      {review ? (
+        <>
+          <div className="mb-2 flex items-start gap-2">
+            <Badge tone={review.verdict === 'looks_good' ? 'green' : 'red'}>{review.verdict === 'looks_good' ? 'Looks good' : 'Needs changes'}</Badge>
+            <p className="m-0 text-sm text-ink">{review.summary}</p>
+          </div>
+          {review.issues.length > 0 && (
+            <ul className="m-0 list-none space-y-1.5 p-0">
+              {review.issues.map((issue, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-ink">
+                  <Badge tone={SEVERITY[issue.severity]}>{issue.severity}</Badge>
+                  <span className="min-w-0">{issue.note}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      ) : (
+        <div className="flex items-center justify-between gap-2">
+          <p className="m-0 text-xs text-dim">Get a second opinion before you submit.</p>
+          <Button size="sm" variant="secondary" className="shrink-0" disabled={!!pending} onClick={() => act('task/critic', { taskId: task.id }, 'Critic is reading the changes')}>Ask the Critic</Button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function AgentPanel({ task, onChanged }) {
   const { boot, me, post } = useTeam();
   const [text, setText] = useState('');
+  const [workIn, setWorkIn] = useState('');
   const [followUp, setFollowUp] = useState('');
   const [error, setError] = useState('');
   const [known, setKnown] = useState(null);
@@ -316,9 +352,17 @@ export default function AgentPanel({ task, onChanged }) {
               <button type="button" key={s} onClick={() => setText(s)} className="cursor-pointer rounded-full border-0 bg-bg px-2 py-0.5 text-[11px] text-dim hover:bg-accent/10 hover:text-accent">{s}</button>
             ))}
           </div>
+          {!me.department && (
+            <label className="mt-2 flex items-center gap-2 text-xs text-dim">
+              Work in
+              <select className={`${textareaClass} !w-auto min-w-0 flex-1`} value={workIn || boot.departments[0]?.id || ''} onChange={(e) => setWorkIn(e.target.value)}>
+                {boot.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </label>
+          )}
           <div className="mt-2 flex items-center justify-between gap-2">
             <span className="text-[11px] text-dim">The agent reads the context first and asks before acting.</span>
-            <Button size="sm" disabled={!text.trim() || !!pending} onClick={() => act('task/start', { text }, 'Reading context and checking for conflicts').then((r) => r && setText(''))}>Give task</Button>
+            <Button size="sm" disabled={!text.trim() || !!pending} onClick={() => act('task/start', { text, department: me.department ? undefined : workIn || undefined }, 'Reading context and checking for conflicts').then((r) => r && setText(''))}>Give task</Button>
           </div>
         </Card>
       )}
@@ -344,6 +388,8 @@ export default function AgentPanel({ task, onChanged }) {
             </Card>
           )}
 
+          {['done', 'sent_back'].includes(task.status) && <CriticCard task={task} act={act} pending={pending} simulated={boot.agentMode === 'mock'} />}
+
           {['done', 'sent_back'].includes(task.status) && (
             <Card className="!p-3">
               <label className="mb-1 block text-xs font-medium text-dim">Ask for more changes</label>
@@ -365,8 +411,8 @@ export default function AgentPanel({ task, onChanged }) {
             <ol className="m-0 list-none space-y-1.5 border-l-2 border-line p-0 pl-3">
               {[...task.messages].reverse().slice(0, 12).map((m, i) => (
                 <li key={i} className="text-xs">
-                  <span className={cx('font-semibold', m.from === 'agent' ? 'text-accent' : m.from === 'manager' ? 'text-pip-b' : m.from === 'developer' ? 'text-ink' : 'text-dim')}>
-                    {m.from === 'agent' ? 'Agent' : m.from === 'developer' ? me.name : m.from === 'manager' ? 'Manager' : 'System'}
+                  <span className={cx('font-semibold', m.from === 'agent' ? 'text-accent' : m.from === 'manager' || m.from === 'critic' ? 'text-pip-b' : m.from === 'developer' ? 'text-ink' : 'text-dim')}>
+                    {m.from === 'agent' ? 'Agent' : m.from === 'developer' ? me.name : m.from === 'manager' ? 'Manager' : m.from === 'critic' ? 'Critic' : 'System'}
                   </span>
                   <span className="text-dim"> · {timeAgo(m.at)}</span>
                   <div className="text-dim">{m.text}</div>

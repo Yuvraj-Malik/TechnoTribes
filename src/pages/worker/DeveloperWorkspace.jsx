@@ -24,8 +24,8 @@ export default function DeveloperWorkspace() {
   const load = useCallback(() => get('task/current').then(setCur).catch(() => {}), [me.id]);
   useEffect(() => { load(); }, [load, tick]);
 
-  if (!me.isDeveloper) {
-    return <div className="mx-auto max-w-xl p-8"><Empty>Only developers (workers in a department) have an agent workspace.</Empty></div>;
+  if (!me.hasAgent) {
+    return <div className="mx-auto max-w-xl p-8"><Empty>Only developers (workers in a department) and the owner have an agent workspace.</Empty></div>;
   }
   const task = cur.task && cur.task.status !== 'cancelled' ? cur.task : null;
   const waiting = status?.suggestions.filter((s) => s.status === 'pending_manager' || s.status === 'pending_founder').length ?? 0;

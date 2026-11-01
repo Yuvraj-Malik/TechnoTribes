@@ -194,7 +194,7 @@ export async function members({ user, query }) {
   const me = await requireRole(user.id, query.projectId, INSIDERS);
   const manager = ['owner', 'admin'].includes(me.role);
   const [rows, departments, requests] = await Promise.all([
-    q(db.from('project_members').select('user_id,role,status,department,created_at,profiles(display_name,email,is_demo)').eq('project_id', query.projectId)),
+    q(db.from('project_members').select('user_id,role,status,department,designation,created_at,profiles(display_name,email,is_demo)').eq('project_id', query.projectId)),
     q(db.from('departments').select('slug,name,color,manager_id').eq('project_id', query.projectId).order('position')),
     manager ? q(db.from('join_requests').select('*').eq('project_id', query.projectId).eq('status', 'pending')) : [],
   ]);
@@ -203,7 +203,7 @@ export async function members({ user, query }) {
     me: { role: me.role, department: me.department ?? null },
     departments: departments.map((d) => ({ id: d.slug, name: d.name, color: d.color, managerId: d.manager_id })),
     members: rows.map((r) => ({
-      userId: r.user_id, role: r.role, status: r.status, department: r.department, joinedAt: r.created_at,
+      userId: r.user_id, role: r.role, status: r.status, department: r.department, designation: r.designation ?? null, joinedAt: r.created_at,
       name: r.profiles?.display_name || r.profiles?.email || 'Someone', email: manager ? r.profiles?.email ?? null : null,
       isDemo: !!r.profiles?.is_demo,
     })),

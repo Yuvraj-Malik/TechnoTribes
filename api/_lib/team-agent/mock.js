@@ -254,6 +254,23 @@ const wait = () => Promise.resolve();
 export const mockAgent = {
   mode: 'mock',
 
+  async critique({ diff, changedFiles, department }) {
+    await wait();
+    const added = diff.split('\n').filter((line) => line.startsWith('+') && !line.startsWith('+++'));
+    const outside = department.paths.length ? changedFiles.filter((f) => !department.paths.some((p) => f.startsWith(p))) : [];
+    const issues = [
+      ...(added.some((line) => /TODO/.test(line)) ? [{ severity: 'high', note: 'The change still holds a TODO note instead of finished code.' }] : []),
+      ...(added.some((line) => /console\.log/.test(line)) ? [{ severity: 'medium', note: 'A console.log was left in the change.' }] : []),
+      ...outside.map((f) => ({ severity: 'medium', note: `${f} is outside ${department.name}'s usual area. Check with its department.` })),
+      ...(added.length > 150 ? [{ severity: 'low', note: `This adds ${added.length} lines. A smaller change is easier to review.` }] : []),
+    ];
+    return {
+      verdict: issues.some((i) => i.severity === 'high') ? 'needs_changes' : 'looks_good',
+      summary: issues.length ? `I found ${issues.length} thing${issues.length === 1 ? '' : 's'} to check before you submit.` : 'I found no problems in these changes.',
+      issues,
+    };
+  },
+
   async checkConflicts() {
     // Guardrail matching against the context runs for every agent in tasks.ts;
     // the simulated agent adds no extra judgement of its own.
@@ -322,7 +339,7 @@ export const mockAgent = {
           files: ['config/payments.json', 'server/payments/gateway.js'],
         };
       default: {
-        const target = input.files[0]?.path ?? input.fileIndex[0];
+        const target = input.files[0]?.path ?? input.fileIndex[0] ?? 'NOTES.md'; // a new project has no files yet
         return {
           understanding: `"${input.task}". The simulated agent has no script for this task, so it will only leave a clearly marked note.`,
           steps: [`Add a TODO note describing the task to ${target}.`, `Context considered: ${sectionNames || 'none'}.`],

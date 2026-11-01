@@ -20,6 +20,7 @@ import * as teamRequests from '../server/team-requests.js';
 import * as teamSafety from '../server/team-safety.js';
 import * as teamContext from '../server/team-context.js';
 import * as teamOverview from '../server/team-overview.js';
+import * as teamOwner from '../server/team-owner.js';
 
 export const routes = {
   'GET health': async () => ({ ok: true, time: new Date().toISOString() }),
@@ -119,6 +120,12 @@ export const routes = {
   'POST team/proposals/preview': teamImpact.preview,
   'POST team/proposals/confirm': teamImpact.confirm,
   'POST team/proposals/discard': teamImpact.discard,
+
+  'GET team/messages': teamOwner.listMessages,
+  'POST team/messages/send': teamOwner.sendMessage,
+  'POST team/members/designation': teamOwner.setDesignation,
+  'GET team/code': teamOwner.code,
+  'POST team/task/critic': teamWork.critic,
 
   // Suggestions: the only way shared context changes (routed by plain code), queues, checkpoints
   'POST team/suggestions/create': teamSuggestions.create,

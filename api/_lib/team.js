@@ -46,18 +46,18 @@ export async function getDepartment(projectId, slug) {
 /** Everyone in the project, with name, role and department. */
 export async function listPeople(projectId) {
   const rows = await q(db.from('project_members')
-    .select('user_id,role,department,status,context_seen_at,profiles(display_name,email,is_demo)')
+    .select('user_id,role,department,designation,status,context_seen_at,profiles(display_name,email,is_demo)')
     .eq('project_id', projectId).eq('status', 'active'));
   return rows.map((r) => ({
     id: r.user_id, name: r.profiles?.display_name || r.profiles?.email || 'Someone', role: r.role,
-    department: r.department, isDemo: !!r.profiles?.is_demo, contextSeenAt: r.context_seen_at,
+    department: r.department, designation: r.designation ?? null, isDemo: !!r.profiles?.is_demo, contextSeenAt: r.context_seen_at,
     isManager: r.role === 'admin' && !!r.department, isDeveloper: r.role === 'worker' && !!r.department,
   }));
 }
 
 /**
  * The person this request acts as. Returns { id, name, role, department,
- * isManager, isDeveloper, realUserId, actingAs }.
+ * isManager, isDeveloper, hasAgent, realUserId, actingAs }.
  */
 export async function teamActor({ user, req, projectId }) {
   if (!projectId) throw new HttpError(400, 'projectId is required');
@@ -84,12 +84,20 @@ export async function teamActor({ user, req, projectId }) {
     id: member.user_id, name, role: member.role, department: member.department ?? null,
     isManager: (member.role === 'admin' && !!member.department) || member.role === 'owner',
     isDeveloper: member.role === 'worker' && !!member.department,
+    hasAgent: member.role === 'owner' || (member.role === 'worker' && !!member.department),
     realUserId: user.id, actingAs: member.user_id !== user.id,
   };
 }
 
 export function requireDeveloper(actor) {
-  if (!actor.isDeveloper) throw new HttpError(403, 'Only developers (workers in a department) have an agent workspace');
+  if (!actor.hasAgent) throw new HttpError(403, 'Only developers (workers in a department) and the owner have an agent workspace');
+}
+
+/** Where an agent task runs. Developers work in their department; the owner picks one. */
+export async function workDepartment(projectId, actor, wanted) {
+  if (actor.department) return actor.department;
+  if (wanted && !(await listDepartments(projectId)).some((d) => d.id === wanted)) throw new HttpError(400, 'Unknown department');
+  return wanted || ensureDefaultDepartment(projectId);
 }
 
 export function requireManagerOf(actor, department) {

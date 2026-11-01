@@ -64,7 +64,7 @@ export default function ProjectOverview() {
   const myDept = departments.find((d) => d.id === me.department);
 
   const actions = me.role === 'owner'
-    ? [<Link key="r" to={`${base}/review`} className={buttonPrimary}>Review work</Link>, <Link key="m" to={`${base}/team`} className={buttonSecondary}>Members</Link>]
+    ? [<Link key="r" to={`${base}/review`} className={buttonPrimary}>Review work</Link>, <Link key="w" to={`${base}/workspace`} className={buttonSecondary}>My workspace</Link>]
     : me.role === 'admin'
       ? [<Link key="r" to={`${base}/review`} className={buttonPrimary}>Review work</Link>, <Link key="t" to={`${base}/tasks`} className={buttonSecondary}>Assign a task</Link>]
       : [<Link key="w" to={`${base}/workspace`} className={buttonPrimary}>Open my workspace</Link>, <Link key="t" to={`${base}/tasks`} className={buttonSecondary}>My tasks</Link>];

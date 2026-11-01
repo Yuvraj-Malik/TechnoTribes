@@ -25,6 +25,8 @@ const PATHS = {
   book: 'M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5',
   settings: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 4.5v5M8 14.5v5',
   arrowLeft: 'M19 12H5M11 6l-6 6 6 6',
+  message: 'M4 5h16v11H9l-5 4z',
+  file: 'M6 3h8l4 4v14H6zM14 3v4h4',
 };
 
 export default function Icon({ name, size = 20, label, className = '', strokeWidth = 1.8 }) {
