@@ -1,7 +1,7 @@
 // The observer's plain-language progress. Run with: npm test
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildWork, findOverlaps, partName, plainText, plainUpdate, productMap, projectLine, reviewerOf, summarize, teamProgress } from '../../api/_lib/observer-summary.js';
+import { buildWork, findOverlaps, mdBlocks, partName, plainText, plainUpdate, productMap, projectAbout, projectLine, reviewerOf, summarize, teamProgress } from '../../api/_lib/observer-summary.js';
 import { brickSize, busiestPart, describePart, headline, layoutProjectLine, wallLayout, wallRows, wrapTitle } from '../../src/features/observer/progressModel.js';
 
 const HOUR = 3600e3;
@@ -99,6 +99,48 @@ test('file names in what an agent wrote become part names', () => {
   assert.equal(plainText(undefined), null);
   const [w] = buildWork({ devs: [dev('x', 'kabir', 'done', { summary: 'Edited web/index.html.' })], people, departments, nameOf });
   assert.equal(w.what, 'Edited Home page.');
+});
+
+const sections = [
+  { id: 'brief', scope: 'central', title: 'Project brief', content: 'A bookkeeping site. See web/index.html.', version: 1, why: 'Set up', updatedBy: 'priya', updatedAt: ago(70), guardrails: [{ phrase: 'dollar', note: 'Secret guardrail' }] },
+  { id: 'pricing', scope: 'central', title: 'Pricing rules', content: 'Prices in rupees.', version: 2, why: 'Meera asked', updatedBy: 'priya', updatedAt: ago(6), guardrails: [] },
+  { id: 'tone', scope: 'central', title: 'Tone of voice', content: 'Plain words.', version: 1, why: 'First draft', updatedBy: 'priya', updatedAt: ago(70), guardrails: [] },
+  { id: 'design', scope: 'website', title: 'Design rules', content: 'Department only text.', version: 1, why: '', updatedBy: 'arjun', updatedAt: ago(70), guardrails: [] },
+];
+
+test('a piece lists the rules it was built on, and flags open work that fell behind', () => {
+  const built = { sections: { pricing: 1, brief: 1 } };
+  const devs = [dev('old', 'kabir', 'working', { relevantSectionIds: ['pricing', 'brief', 'gone'], builtOn: built }), dev('live', 'tara', 'approved', { relevantSectionIds: ['pricing'], builtOn: built })];
+  const byId = Object.fromEntries(buildWork({ devs, sections, people, departments, nameOf }).map((w) => [w.id, w.rules]));
+  assert.deepEqual(byId.old, [{ id: 'pricing', title: 'Pricing rules', version: 1, changed: true }, { id: 'brief', title: 'Project brief', version: 1, changed: false }]);
+  assert.equal(byId.live[0].changed, false, 'live work is settled');
+  assert.deepEqual(buildWork({ commits: [{ id: 'c', message: 'x', created_at: ago(1) }], nameOf })[0].rules, []);
+});
+
+test('the about section shares central context only, in plain words', () => {
+  const technical = { id: 'api', scope: 'central', title: 'Order API contract', content: 'POST /api/orders', version: 1, guardrails: [] };
+  const about = projectAbout({ sections: [...sections, technical], nameOf });
+  assert.equal(about.brief, 'A bookkeeping site. See Home page.');
+  assert.deepEqual(about.rules.map((r) => [r.title, r.who, r.why]), [['Pricing rules', 'Priya', 'Meera asked'], ['Tone of voice', 'Priya', null]]);
+  assert.equal(about.teamRules, 2, 'the department rule and the technical one');
+  assert.doesNotMatch(JSON.stringify(about), /Department only text|Secret guardrail|POST \/api/);
+  assert.equal(projectAbout({ description: 'From the project' }).brief, 'From the project');
+  assert.deepEqual(projectAbout({}), { brief: null, rules: [], teamRules: 0, docs: [] });
+});
+
+test('Markdown files in the project become readable documents', () => {
+  const files = { 'docs/plan.md': 'No heading here.', 'web/index.html': '<p>', 'README.md': '# LedgerLite\n\nOne line\nwrapped over two.\n\n## Parts\n\n- **Site** in `web/index.html`\n1. [Docs](https://x.y)\n\n---\n' };
+  const { docs } = projectAbout({ files });
+  assert.deepEqual(docs.map((d) => d.title), ['LedgerLite', 'Plan']);
+  assert.deepEqual(docs[0].blocks, [
+    { kind: 'text', text: 'One line wrapped over two.' },
+    { kind: 'heading', text: 'Parts' },
+    { kind: 'item', text: 'Site in Home page' },
+    { kind: 'item', text: 'Docs' },
+  ]);
+  assert.deepEqual(docs[1].blocks, [{ kind: 'text', text: 'No heading here.' }]);
+  assert.deepEqual(mdBlocks(''), []);
+  assert.equal(projectAbout({ files: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`d${i}.md`, 'x'])) }).docs.length, 8);
 });
 
 test('a task and the agent work carrying it out are one piece', () => {

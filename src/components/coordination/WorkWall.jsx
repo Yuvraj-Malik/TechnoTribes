@@ -66,6 +66,14 @@ function Detail({ piece }) {
         why={piece.why}
         whatLabel={piece.stage === 'done' ? 'What changed' : planning ? 'What is planned' : 'What was built'}
       />
+      {piece.rules.length > 0 && (
+        <p className="m-0 mt-2 text-[13px] text-dim">
+          Built to follow: {piece.rules.map((rule) => `${rule.title} (version ${rule.version})`).join(', ')}
+        </p>
+      )}
+      {piece.rules.filter((rule) => rule.changed).map((rule) => (
+        <Badge key={rule.id} tone="amber" className="mt-1.5 mr-1.5">{rule.title} has changed since this was built</Badge>
+      ))}
     </div>
   );
 }

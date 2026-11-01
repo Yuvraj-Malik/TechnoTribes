@@ -115,6 +115,17 @@ test('the rule changes no longer read like a database', async () => {
   assert.doesNotMatch(JSON.stringify(rules), /central context/);
 });
 
+test('the observer reads central context and documents, but not team-only context', async () => {
+  const { about, roadmap } = await feed();
+  const context = (await call('GET', 'team/context')).central;
+  assert.ok(about.rules.length > 0 && about.rules.length <= context.length);
+  assert.ok(about.rules.every((r) => context.some((s) => s.id === r.id)));
+  assert.ok(about.teamRules > 0);
+  assert.ok(about.docs.some((d) => d.title === 'CampusEats'), 'the README is a document');
+  assert.doesNotMatch(JSON.stringify(about.rules), /guardrail|phrase|POST \/api/i);
+  assert.ok(roadmap.some((w) => w.rules.length > 0), 'work lists the rules it was built on');
+});
+
 test('the team-only code view stays closed to the observer', async () => {
   await assert.rejects(call('GET', 'team/code', { user: investor }), (e) => e.status === 403 || e.status === 404);
 });

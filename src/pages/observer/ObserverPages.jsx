@@ -11,6 +11,7 @@ import { buildPreview } from '../../components/preview/WorkArea';
 import WorkWall from '../../components/coordination/WorkWall';
 import WhoIsDoingWhat from '../../components/coordination/WhoIsDoingWhat';
 import PlainUpdate from '../../components/timeline/PlainUpdate';
+import ProjectAbout from '../../components/timeline/ProjectAbout';
 import ProjectLine from '../../components/timeline/ProjectLine';
 import WhatWhy from '../../components/timeline/WhatWhy';
 import ProductMap from '../../components/dependency-graph/ProductMap';
@@ -123,6 +124,9 @@ export function ObserverUpdates() {
           <Section className="mb-6" title="Who is doing what" description="Everyone builds with their own AI agent. A person checks every result."><WhoIsDoingWhat people={data.people} /></Section>
           <HowItFits line={data.line} map={data.map} />
         </>
+      )}
+      {(data.about.brief || data.about.rules.length > 0 || data.about.docs.length > 0) && (
+        <Section className="mb-6" title="What we are building"><ProjectAbout about={data.about} /></Section>
       )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">

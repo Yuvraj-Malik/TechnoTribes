@@ -68,7 +68,14 @@ export const plainText = (text) => (text ? text.replace(FILE_IN_TEXT, (path) => 
  * Anything else that reached the live site is a finished piece too, so every
  * version on the project line is also a brick on the wall.
  */
-export function buildWork({ tasks = [], devs = [], submissions = [], commits = [], people = [], departments = [], requests = [], viewerId = null, nameOf = () => 'Someone' }) {
+export function buildWork({ tasks = [], devs = [], submissions = [], commits = [], people = [], departments = [], requests = [], sections = [], viewerId = null, nameOf = () => 'Someone' }) {
+  // The context a piece was built on. Finished work is settled, so only open work can be out of date.
+  const rulesOf = (d, stage) => (d?.relevantSectionIds ?? []).flatMap((id) => {
+    const section = sections.find((s) => s.id === id);
+    if (!section) return [];
+    const builtOn = d.builtOn?.sections?.[id] ?? section.version;
+    return [{ id, title: section.title, version: builtOn, changed: stage === 'now' && builtOn < section.version }];
+  });
   const history = [...commits].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   const latestSub = (devId) => submissions.filter((s) => s.taskId === devId).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] ?? null;
   const versionOf = (sub) => {
@@ -92,7 +99,7 @@ export function buildWork({ tasks = [], devs = [], submissions = [], commits = [
     return {
       id: t.id, devTaskId: d?.id ?? null, title: t.title, details: t.description, who: nameOf(t.assignee_id), userId: t.assignee_id,
       stage, step: now?.step ?? 0, statusWords: wordsFor(stage, version, now, t.status), waitingOn: now?.waitingOn ?? null, version,
-      what: plainText(sub?.summary || d?.summary), why: plainText(sub?.why || d?.whyDraft),
+      what: plainText(sub?.summary || d?.summary), why: plainText(sub?.why || d?.whyDraft), rules: rulesOf(d, stage),
       fromYourRequest: !!t.observer_request_id && requests.some((r) => r.id === t.observer_request_id && r.observer_id === viewerId),
       fromRequest: !!t.observer_request_id,
       when: sub?.reviewedAt || sub?.createdAt || t.created_at,
@@ -112,7 +119,7 @@ export function buildWork({ tasks = [], devs = [], submissions = [], commits = [
       return {
         id: d.id, devTaskId: d.id, title, details: null, who: d.userName || nameOf(d.userId), userId: d.userId,
         stage, step: now?.step ?? 0, statusWords: wordsFor(stage, version, now), waitingOn: now?.waitingOn ?? null, version,
-        what: plainText(sub?.summary || d.summary), why: plainText(sub?.why || d.whyDraft),
+        what: plainText(sub?.summary || d.summary), why: plainText(sub?.why || d.whyDraft), rules: rulesOf(d, stage),
         fromYourRequest: false, fromRequest: false,
         when: sub?.reviewedAt || sub?.createdAt || d.createdAt,
       };
@@ -122,7 +129,7 @@ export function buildWork({ tasks = [], devs = [], submissions = [], commits = [
   const unclaimed = history.flatMap((c, i) => (credited.has(i + 1) ? [] : [{
     id: c.id, devTaskId: null, title: messageTitle(c.message), details: null, who: nameOf(c.author_id), userId: c.author_id,
     stage: 'done', step: 0, statusWords: wordsFor('done', i + 1), waitingOn: null, version: i + 1,
-    what: null, why: null, fromYourRequest: false, fromRequest: false, when: c.created_at,
+    what: null, why: null, rules: [], fromYourRequest: false, fromRequest: false, when: c.created_at,
   }]));
 
   return [...assigned, ...direct, ...unclaimed].sort((a, b) => STAGE_ORDER[a.stage] - STAGE_ORDER[b.stage]
@@ -258,9 +265,59 @@ export function productMap({ files = {}, devs = [], work = [] }) {
   };
 }
 
+const MOST_DOCS = 8;
+const DOC_CHARS = 6000;
+const TECHNICAL_TITLE = /\b(api|schema|tech|endpoints?|structure)\b/i;
+
+/** A Markdown document as plain blocks, so the page needs no Markdown library. */
+export function mdBlocks(text) {
+  const clean = (line) => plainText(line.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*`]+/g, '').trim());
+  const blocks = [];
+  for (const raw of String(text).split('\n')) {
+    const line = raw.trim();
+    const heading = line.match(/^#{1,6}\s+(.*)/);
+    const item = line.match(/^(?:[-*+]|\d+\.)\s+(.*)/);
+    if (!line || /^(```|---+$|\|)/.test(line)) blocks.push(null);
+    else if (heading) blocks.push({ kind: 'heading', text: clean(heading[1]) });
+    else if (item) blocks.push({ kind: 'item', text: clean(item[1]) });
+    else if (blocks.at(-1)?.kind === 'text') blocks.at(-1).text += ` ${clean(line)}`;
+    else blocks.push({ kind: 'text', text: clean(line) });
+  }
+  return blocks.filter(Boolean);
+}
+
+/**
+ * What the project is, from its context and documents. Context is otherwise
+ * team-only, so this shares the central sections written for everyone and nothing
+ * else: no technical sections, department rules, guardrails or version history.
+ */
+export function projectAbout({ sections = [], files = {}, description = null, nameOf = () => 'Someone' }) {
+  const central = sections.filter((s) => s.scope === 'central');
+  const brief = central.find((s) => /brief|overview|about/i.test(s.title));
+  const shared = central.filter((s) => s !== brief && !TECHNICAL_TITLE.test(s.title));
+  const docs = Object.keys(files)
+    .filter((path) => /\.mdx?$/i.test(path))
+    .sort((a, b) => /readme/i.test(b) - /readme/i.test(a) || a.localeCompare(b))
+    .slice(0, MOST_DOCS)
+    .map((path, i) => {
+      const [first, ...rest] = mdBlocks(String(files[path]).slice(0, DOC_CHARS));
+      const titled = first?.kind === 'heading';
+      return { id: `doc-${i}`, title: titled ? first.text : partName(path), blocks: titled ? rest : [first, ...rest].filter(Boolean) };
+    });
+  return {
+    brief: plainText(brief?.content) ?? description,
+    rules: shared.map((s) => ({
+      id: s.id, title: s.title, version: s.version, text: plainText(s.content), why: s.version > 1 ? plainText(s.why) : null,
+      who: s.updatedBy ? firstName(nameOf(s.updatedBy)) : null, when: s.updatedAt,
+    })),
+    teamRules: sections.length - shared.length - (brief ? 1 : 0),
+    docs,
+  };
+}
+
 /** Everything the observer's progress views need. */
-export function summarize({ tasks, devs, submissions, commits, people, departments, requests, events, files, viewerId, nameOf, now }) {
-  const work = buildWork({ tasks, devs, submissions, commits, people, departments, requests, viewerId, nameOf });
+export function summarize({ tasks, devs, submissions, commits, people, departments, requests, events, files, sections, description, viewerId, nameOf, now }) {
+  const work = buildWork({ tasks, devs, submissions, commits, people, departments, requests, sections, viewerId, nameOf });
   const overlaps = findOverlaps(devs);
   const counts = { done: 0, now: 0, upcoming: 0 };
   for (const w of work) counts[w.stage] += 1;
@@ -271,5 +328,6 @@ export function summarize({ tasks, devs, submissions, commits, people, departmen
     update: plainUpdate({ work, requests, overlaps, viewerId, now }),
     line: projectLine({ commits, work, overlaps, nameOf }),
     map: productMap({ files, devs, work }),
+    about: projectAbout({ sections, files, description, nameOf }),
   };
 }
