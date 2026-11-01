@@ -712,7 +712,8 @@ alter table public.messages enable row level security;
 
 create policy "read your messages" on public.messages
   for select using (sender_id = auth.uid() or auth.uid() = any (recipient_ids));
-=======
+
+-- =====================================================================
 -- 006: coordination layer (same as supabase/migrations/006_coordination.sql)
 -- =====================================================================
 -- =====================================================================
