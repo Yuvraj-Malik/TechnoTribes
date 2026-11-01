@@ -2,16 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizePath, humanizeKey } from '../../api/_lib/paths.js';
-import { downstream, upstream, intersect } from '../../api/_lib/dependency-graph.js';
-import { groupBySharedTargets, bucketLabel } from '../../api/_lib/reviews.js';
-import { validateBuilderOutput } from '../../server/agents/builder.js';
+import { threeWay, diffMaps } from '../../api/_lib/files.js';
 import { routes } from '../../api/index.js';
-
-const edges = [
-  { from_key: 'file:src/pages/Pricing.jsx', to_key: 'file:src/components/Button.jsx' },
-  { from_key: 'file:src/pages/Signup.jsx', to_key: 'file:src/components/Button.jsx' },
-  { from_key: 'file:src/components/Button.jsx', to_key: 'req:tone' },
-];
 
 test('paths are normalized and unsafe paths are rejected', () => {
   assert.equal(normalizePath('./src\\pages/Home.jsx'), 'src/pages/Home.jsx');
@@ -21,41 +13,26 @@ test('paths are normalized and unsafe paths are rejected', () => {
   assert.match(humanizeKey('req:target_audience'), /target audience/);
 });
 
-test('downstream finds everything that depends on a change', async () => {
-  const hit = await downstream('p', ['req:tone'], edges);
-  assert.deepEqual(hit.sort(), ['file:src/components/Button.jsx', 'file:src/pages/Pricing.jsx', 'file:src/pages/Signup.jsx']);
-});
-
-test('upstream finds everything a file relies on', async () => {
-  const deps = await upstream('p', ['file:src/pages/Pricing.jsx'], edges);
-  assert.deepEqual(deps.sort(), ['file:src/components/Button.jsx', 'req:tone']);
-  assert.deepEqual(intersect(['a', 'b'], ['b', 'c', 'b']), ['b']);
-});
-
-test('reviews touching the same files land in one bucket', () => {
-  const groups = groupBySharedTargets([
-    { id: 1, targets: ['file:a'] },
-    { id: 2, targets: ['file:b'] },
-    { id: 3, targets: ['file:a', 'file:c'] },
-    { id: 4, targets: ['file:c'] },
-  ]);
-  const ids = groups.map((g) => g.map((x) => x.id).sort()).sort();
-  assert.deepEqual(ids, [[1, 3, 4], [2]]);
-  assert.match(bucketLabel(groups.find((g) => g.length === 3)), /^3 changes to/);
-});
-
-test('builder output is validated and cleaned', () => {
-  const ok = validateBuilderOutput({
-    summary: 'Adds a free trial',
-    changes: [{ path: './src/pages/Pricing.jsx', action: 'update', content: 'x' }],
-    depends_on: ['src/components/Button.jsx', 'req:audience'],
-  });
-  assert.equal(ok.changes[0].path, 'src/pages/Pricing.jsx');
-  assert.deepEqual(ok.dependsOn, ['file:src/components/Button.jsx', 'req:audience']);
-  assert.throws(() => validateBuilderOutput({ summary: 'x', changes: [] }));
-  assert.throws(() => validateBuilderOutput({ summary: 'x', changes: [{ path: 'a.js', action: 'update' }] }));
+test('three-way merge keeps both sides when they touch different files', () => {
+  const base = { 'a.js': '1', 'b.js': '1' };
+  const r = threeWay(base, { 'a.js': '2', 'b.js': '1' }, { 'a.js': '1', 'b.js': '3' });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.files, { 'a.js': '2', 'b.js': '3' });
+  const c = threeWay(base, { 'a.js': '2', 'b.js': '1' }, { 'a.js': '9', 'b.js': '1' });
+  assert.deepEqual(c.conflicted, ['a.js']);
+  assert.ok(diffMaps(base, { 'a.js': '2', 'b.js': '1' }));
 });
 
 test('every route points to a real handler', () => {
   for (const [key, fn] of Object.entries(routes)) assert.equal(typeof fn, 'function', key);
+  for (const r of ['GET team/overview', 'POST team/context/save', 'POST tasks/delete', 'POST projects/update', 'POST team/members/role']) assert.ok(routes[r], r);
+});
+
+test('router finds the endpoint however Vercel or Vite passes the request', async () => {
+  const { routeOf } = await import('../../api/index.js');
+  assert.equal(routeOf({ url: '/api/team/task/start', query: {} }), 'team/task/start');
+  assert.equal(routeOf({ url: '/api/index?route=auth/me', query: { route: 'auth/me' } }), 'auth/me');
+  assert.equal(routeOf({ url: '/api/index', query: { route: ['team', 'review', 'queue'] } }), 'team/review/queue');
+  assert.equal(routeOf({ url: '/auth/me', query: { route: 'auth/me' } }), 'auth/me');
+  assert.equal(routeOf({ url: '/api/projects/discover?search=x', query: { route: 'projects', search: 'x' } }), 'projects/discover');
 });

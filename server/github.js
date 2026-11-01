@@ -5,8 +5,9 @@ import { db, q } from '../api/_lib/supabase-admin.js';
 import { HttpError } from '../api/_lib/errors.js';
 import { requireFields, asArray } from '../api/_lib/http.js';
 import { requireRole, INSIDERS, MANAGERS } from '../api/_lib/permissions.js';
-import { commitChange } from '../api/_lib/moderator.js';
 import { normalizePath } from '../api/_lib/paths.js';
+import { readAll, writeAll } from '../api/_lib/files.js';
+import { logEvent } from '../api/_lib/activity.js';
 
 const TEXT_FILE = /\.(jsx?|tsx?|css|html|json|md|svg|txt|mjs|cjs)$/i;
 const SKIP = /(^|\/)(node_modules|dist|build|\.git)\//;
@@ -51,7 +52,7 @@ export async function file({ user, query }) {
 }
 
 // POST /api/github/import  { projectId, ref?, paths?: [] }   (owner/admin)
-// Pulls text files from the repo into the Moderator as one new version.
+// Pulls text files from the repo into the approved (main) files as one commit.
 export async function importRepo({ user, body }) {
   requireFields(body, ['projectId']);
   await requireRole(user.id, body.projectId, MANAGERS);
@@ -69,12 +70,15 @@ export async function importRepo({ user, body }) {
     const data = await gh(`/repos/${repo.owner}/${repo.name}/git/blobs/${blob.sha}`);
     fileChanges.push({ path: normalizePath(blob.path), action: 'update', content: Buffer.from(data.content, 'base64').toString('utf8') });
   }
-  const result = await commitChange({
-    projectId: body.projectId, actorId: user.id, submittedBy: user.id, kind: 'import',
-    summary: `Imported ${fileChanges.length} files from GitHub (${repo.owner}/${repo.name}@${ref})`,
-    fileChanges,
-  });
-  return { imported: fileChanges.length, version: result.version };
+  const main = await readAll(body.projectId, 'main');
+  for (const f of fileChanges) main[f.path] = f.content;
+  await writeAll(body.projectId, 'main', main);
+  const message = `Imported ${fileChanges.length} files from GitHub (${repo.owner}/${repo.name}@${ref})`;
+  const commit = await q(db.from('main_commits').insert({
+    project_id: body.projectId, author_id: user.id, message, files: fileChanges.map((f) => f.path),
+  }).select().single());
+  await logEvent(body.projectId, { type: 'github.import', actorId: user.id, summary: message, data: { commitId: commit.id } });
+  return { imported: fileChanges.length, commitId: commit.id };
 }
 
 // POST /api/github/branch  { projectId, name, from? }   (insiders)

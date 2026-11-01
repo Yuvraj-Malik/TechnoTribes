@@ -9,11 +9,13 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test tests/unit/*.test.js",
+    "test:integration": "node --test tests/integration/*.test.js",
     "db:login": "supabase login",
     "db:link": "supabase link",
     "db:push": "supabase db push",
     "db:auth": "supabase config push",
-    "db:setup": "supabase db push && supabase config push"
+    "db:setup": "supabase db push && supabase config push",
+    "seed:demo": "node --env-file=.env.local scripts/seed-demo.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

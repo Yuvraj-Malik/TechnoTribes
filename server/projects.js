@@ -4,12 +4,20 @@ import { HttpError } from '../api/_lib/errors.js';
 import { requireFields, displayName } from '../api/_lib/http.js';
 import { requireRole, OWNER, MANAGERS, INSIDERS, EVERYONE } from '../api/_lib/permissions.js';
 import { makeCode } from '../api/_lib/codes.js';
-import { notify, managersOf, ownerOf, ensureAgents, addHistory, namesFor } from '../api/_lib/log.js';
-import { commitChange, getState } from '../api/_lib/moderator.js';
-import { propagateChange } from '../api/_lib/coordination.js';
-import { reqKey } from '../api/_lib/paths.js';
+import { notify, managersOf, ownerOf, namesFor } from '../api/_lib/log.js';
+import { ensureDefaultDepartment, placeInDepartment } from '../api/_lib/team.js';
+import { insertSection } from '../api/_lib/context.js';
+import { logEvent } from '../api/_lib/activity.js';
 
-// POST /api/projects/create  { name, description?, brief?, repo?: {owner,name,branch} }
+const BRIEF_LABELS = { product: 'Product', audience: 'Audience', tone: 'Tone', goal: 'Goal' };
+const briefText = (brief) => Object.entries(brief || {})
+  .filter(([, v]) => String(v ?? '').trim())
+  .map(([k, v]) => `${BRIEF_LABELS[k] || k.charAt(0).toUpperCase() + k.slice(1)}: ${String(v).trim()}`)
+  .join('\n');
+
+// POST /api/projects/create  { name, description?, brief?: {product, audience, tone, goal}, repo? }
+// The creator becomes the owner. Every project starts with a "General" department
+// and a Central "Project brief" context section that the agents read.
 export async function create({ user, body }) {
   requireFields(body, ['name']);
   const project = await q(db.from('projects').insert({
@@ -17,21 +25,31 @@ export async function create({ user, body }) {
     description: body.description || null,
     owner_id: user.id,
     observer_code: makeCode('OBS'),
+    project_code: makeCode('PRJ'),
     repo_owner: body.repo?.owner || null,
     repo_name: body.repo?.name || null,
     default_branch: body.repo?.branch || 'main',
   }).select().single());
   await q(db.from('project_members').insert({ project_id: project.id, user_id: user.id, role: 'owner', status: 'active' }));
-  await q(db.from('project_state').insert({ project_id: project.id, brief: body.brief || {}, files: {} }));
-  await addHistory(project.id, user.id, 'project_created', { name: project.name });
-  return { project, observerCode: project.observer_code };
+  await ensureDefaultDepartment(project.id);
+  const content = briefText(body.brief) || `${project.name}${project.description ? `: ${project.description}` : ''}`;
+  await insertSection(project.id, {
+    id: 'c-brief', scope: 'central', title: 'Project brief', content, why: 'Set when the project was created',
+    ownerId: user.id, tags: ['*'], guardrails: [],
+  }, 0);
+  await q(db.from('scope_versions').upsert({ project_id: project.id, scope: 'central', version: 1 }, { onConflict: 'project_id,scope', ignoreDuplicates: true }));
+  await logEvent(project.id, { type: 'seed', actorId: user.id, summary: `${displayName(user)} created the project ${project.name}` });
+  return { project, observerCode: project.observer_code, projectCode: project.project_code };
 }
 
 // GET /api/projects/get?projectId=
 export async function get({ user, query }) {
   const me = await requireRole(user.id, query.projectId, EVERYONE);
   const project = await q(db.from('projects').select('*').eq('id', query.projectId).single());
-  if (me.role !== 'owner') delete project.observer_code;
+  if (me.role !== 'owner') {
+    delete project.observer_code;
+    delete project.project_code;
+  }
   return { project, role: me.role };
 }
 
@@ -57,7 +75,8 @@ export async function createAdminCode({ user, body }) {
 }
 
 // POST /api/projects/join  { code }
-//   OBS-...  -> becomes the project's observer (only one per project)
+//   OBS-...  -> anyone with it can observe the project. Not in it yet: joins as an observer.
+//               Already a member (worker, admin, owner): keeps their role and opens the observer view.
 //   ADM-...  -> becomes an admin, pending the owner's approval
 export async function join({ user, body }) {
   requireFields(body, ['code']);
@@ -68,9 +87,7 @@ export async function join({ user, body }) {
     if (!project) throw new HttpError(404, 'Observer code not found');
     const members = await q(db.from('project_members').select('*').eq('project_id', project.id));
     const mine = members.find((m) => m.user_id === user.id);
-    if (mine?.role === 'observer') return { projectId: project.id, projectName: project.name, role: 'observer', status: 'active' };
-    if (mine) throw new HttpError(409, 'You are already part of this project in another role');
-    if (members.some((m) => m.role === 'observer')) throw new HttpError(409, 'This project already has an observer');
+    if (mine) return { projectId: project.id, projectName: project.name, role: mine.role, status: mine.status, observing: true };
     await q(db.from('project_members').insert({ project_id: project.id, user_id: user.id, role: 'observer', status: 'active' }));
     return { projectId: project.id, projectName: project.name, role: 'observer', status: 'active' };
   }
@@ -110,7 +127,7 @@ export async function approveAdmin({ user, body }) {
     return { approved: false };
   }
   await q(db.from('project_members').update({ status: 'active' }).eq('id', member.id));
-  await ensureAgents(body.projectId, body.userId);
+  await placeInDepartment(body.projectId, body.userId, 'admin');
   await notify([{ user_id: body.userId, project_id: body.projectId, kind: 'admin_approved', title: 'You are now an admin on this project' }]);
   return { approved: true };
 }
@@ -135,12 +152,16 @@ export async function respondJoinRequest({ user, body }) {
   requireFields(body, ['requestId']);
   const request = (await q(db.from('join_requests').select('*').eq('id', body.requestId)))[0];
   if (!request || request.status !== 'pending') throw new HttpError(404, 'Pending request not found');
-  await requireRole(user.id, request.project_id, MANAGERS);
+  const me = await requireRole(user.id, request.project_id, MANAGERS);
   const accept = body.accept !== false;
   await q(db.from('join_requests').update({ status: accept ? 'accepted' : 'rejected', decided_by: user.id }).eq('id', request.id));
   if (accept) {
-    await q(db.from('project_members').insert({ project_id: request.project_id, user_id: request.user_id, role: 'worker', status: 'active' }));
-    await ensureAgents(request.project_id, request.user_id);
+    // An admin's new worker joins the admin's department.
+    await q(db.from('project_members').insert({
+      project_id: request.project_id, user_id: request.user_id, role: 'worker', status: 'active',
+      department: me.role === 'admin' ? me.department ?? null : body.department || null,
+    }));
+    await placeInDepartment(request.project_id, request.user_id, 'worker');
   }
   await notify([{
     user_id: request.user_id, project_id: request.project_id, kind: 'join_result',
@@ -149,74 +170,147 @@ export async function respondJoinRequest({ user, body }) {
   return { accepted: accept };
 }
 
-// POST /api/projects/members/add  { projectId, email }   (owner/admin) -> adds a worker directly
+// POST /api/projects/members/add  { projectId, email, department? }   (owner/admin) -> adds a worker directly
 export async function addWorker({ user, body }) {
   requireFields(body, ['projectId', 'email']);
-  await requireRole(user.id, body.projectId, MANAGERS);
-  const profile = (await q(db.from('profiles').select('id').eq('email', String(body.email).toLowerCase())))[0];
+  const me = await requireRole(user.id, body.projectId, MANAGERS);
+  const profile = (await q(db.from('profiles').select('id').eq('email', String(body.email).trim().toLowerCase())))[0];
   if (!profile) throw new HttpError(404, 'No account with that email. Ask them to sign up first');
   const existing = await q(db.from('project_members').select('id').eq('project_id', body.projectId).eq('user_id', profile.id));
   if (existing.length) throw new HttpError(409, 'This person is already part of the project');
-  await q(db.from('project_members').insert({ project_id: body.projectId, user_id: profile.id, role: 'worker', status: 'active' }));
-  await ensureAgents(body.projectId, profile.id);
+  await q(db.from('project_members').insert({
+    project_id: body.projectId, user_id: profile.id, role: 'worker', status: 'active',
+    department: me.role === 'admin' ? me.department ?? null : body.department || null,
+  }));
+  await placeInDepartment(body.projectId, profile.id, 'worker');
   await notify([{ user_id: profile.id, project_id: body.projectId, kind: 'added', title: 'You were added to a project as a worker' }]);
   return { userId: profile.id, role: 'worker' };
 }
 
 // GET /api/projects/members?projectId=   (insiders)
+// Everyone in the project with role, department and email; managers also get
+// pending join requests and admins waiting for the owner's approval.
 export async function members({ user, query }) {
   const me = await requireRole(user.id, query.projectId, INSIDERS);
-  const rows = await q(db.from('project_members').select('user_id,role,status,created_at').eq('project_id', query.projectId));
-  const agents = await q(db.from('agents').select('id,user_id,kind,status,current_activity,updated_at').eq('project_id', query.projectId));
-  const requests = ['owner', 'admin'].includes(me.role)
-    ? await q(db.from('join_requests').select('*').eq('project_id', query.projectId).eq('status', 'pending'))
-    : [];
-  const names = await namesFor([...rows.map((r) => r.user_id), ...requests.map((r) => r.user_id)]);
+  const manager = ['owner', 'admin'].includes(me.role);
+  const [rows, departments, requests] = await Promise.all([
+    q(db.from('project_members').select('user_id,role,status,department,created_at,profiles(display_name,email,is_demo)').eq('project_id', query.projectId)),
+    q(db.from('departments').select('slug,name,color,manager_id').eq('project_id', query.projectId).order('position')),
+    manager ? q(db.from('join_requests').select('*').eq('project_id', query.projectId).eq('status', 'pending')) : [],
+  ]);
+  const names = await namesFor(requests.map((r) => r.user_id));
   return {
+    me: { role: me.role, department: me.department ?? null },
+    departments: departments.map((d) => ({ id: d.slug, name: d.name, color: d.color, managerId: d.manager_id })),
     members: rows.map((r) => ({
-      ...r, name: names[r.user_id] || null,
-      agents: agents.filter((a) => a.user_id === r.user_id),
+      userId: r.user_id, role: r.role, status: r.status, department: r.department, joinedAt: r.created_at,
+      name: r.profiles?.display_name || r.profiles?.email || 'Someone', email: manager ? r.profiles?.email ?? null : null,
+      isDemo: !!r.profiles?.is_demo,
     })),
-    joinRequests: requests.map((r) => ({ ...r, name: names[r.user_id] || null })),
+    joinRequests: requests.map((r) => ({ id: r.id, userId: r.user_id, name: names[r.user_id] || null, message: r.message, createdAt: r.created_at })),
   };
 }
 
-// POST /api/projects/brief/preview  { projectId, brief }   (owner/admin)
-// Shows what a requirement change WOULD affect, before saving it.
-export async function previewBrief({ user, body }) {
-  requireFields(body, ['projectId', 'brief']);
-  await requireRole(user.id, body.projectId, MANAGERS);
-  const state = await getState(body.projectId);
-  const changed = Object.keys(body.brief).filter(
-    (k) => JSON.stringify((state.brief || {})[k]) !== JSON.stringify(body.brief[k]),
-  );
-  const impact = await propagateChange(
-    body.projectId, changed.map(reqKey), state.current_version + 1, user.id, '', { dryRun: true },
-  );
-  return { changedFields: changed, impact };
+// POST /api/projects/update  { projectId, name?, description? }   (owner)
+export async function update({ user, body }) {
+  requireFields(body, ['projectId']);
+  await requireRole(user.id, body.projectId, OWNER);
+  const patch = {};
+  if (body.name !== undefined) {
+    const name = String(body.name).trim();
+    if (name.length < 2) throw new HttpError(400, 'The project name needs at least 2 characters');
+    patch.name = name.slice(0, 120);
+  }
+  if (body.description !== undefined) patch.description = String(body.description).trim().slice(0, 1000) || null;
+  if (!Object.keys(patch).length) throw new HttpError(400, 'Nothing to update');
+  await q(db.from('projects').update(patch).eq('id', body.projectId));
+  const project = await q(db.from('projects').select('id,name,description').eq('id', body.projectId).single());
+  return { project };
 }
 
-// POST /api/projects/brief  { projectId, brief, reason? }   (owner/admin)
-// Saves a requirement change as a new version and marks dependent work stale.
-export async function updateBrief({ user, body }) {
-  requireFields(body, ['projectId', 'brief']);
-  if (typeof body.brief !== 'object' || Array.isArray(body.brief)) throw new HttpError(400, 'brief must be an object');
-  await requireRole(user.id, body.projectId, MANAGERS);
-  const fields = Object.keys(body.brief);
-  const result = await commitChange({
-    projectId: body.projectId,
-    actorId: user.id,
-    submittedBy: user.id,
-    kind: 'brief',
-    summary: `${displayName(user)} changed the project requirements: ${fields.join(', ')}`,
-    reason: body.reason || '',
-    briefPatch: body.brief,
-  });
-  if (result.unchanged) return { changed: false, version: result.version };
-  const impact = await propagateChange(
-    body.projectId, result.changedKeys, result.version, user.id,
-    `${displayName(user)} changed the requirements (${fields.join(', ')}).`,
-  );
-  await addHistory(body.projectId, user.id, 'brief_changed', { fields, version: result.version });
-  return { changed: true, version: result.version, observerSummary: result.observerSummary, impact };
+// POST /api/projects/project-code  { projectId }   (owner) -> new project ID; the old one stops working
+export async function regenerateProjectCode({ user, body }) {
+  await requireRole(user.id, body.projectId, OWNER);
+  const code = makeCode('PRJ');
+  await q(db.from('projects').update({ project_code: code }).eq('id', body.projectId));
+  return { projectCode: code };
+}
+
+// POST /api/projects/members/remove  { projectId, userId }   (owner; admins: workers of their own department)
+export async function removeMember({ user, body }) {
+  requireFields(body, ['projectId', 'userId']);
+  const me = await requireRole(user.id, body.projectId, MANAGERS);
+  const target = (await q(db.from('project_members').select('*').eq('project_id', body.projectId).eq('user_id', body.userId)))[0];
+  if (!target) throw new HttpError(404, 'This person is not in the project');
+  if (target.role === 'owner') throw new HttpError(400, 'The owner cannot be removed');
+  if (me.role === 'admin' && !(target.role === 'worker' && target.department === me.department)) {
+    throw new HttpError(403, 'Admins can only remove workers of their own department');
+  }
+  await q(db.from('project_members').delete().eq('project_id', body.projectId).eq('user_id', body.userId));
+  await q(db.from('departments').update({ manager_id: null }).eq('project_id', body.projectId).eq('manager_id', body.userId));
+  await notify([{ user_id: body.userId, project_id: body.projectId, kind: 'removed', title: 'You were removed from a project' }]);
+  return { removed: true };
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard: browsing projects and opening one with its project ID
+// ---------------------------------------------------------------------------
+
+// GET /api/projects/discover?search=   -> projects you are NOT part of, so you can ask to join
+export async function discover({ user, query }) {
+  const [projects, memberships, mine, requests] = await Promise.all([
+    q(db.from('projects').select('id,name,description,owner_id,created_at').order('created_at', { ascending: false }).limit(200)),
+    q(db.from('project_members').select('project_id,role,status').eq('status', 'active')),
+    q(db.from('project_members').select('project_id').eq('user_id', user.id)),
+    q(db.from('join_requests').select('project_id,status,created_at').eq('user_id', user.id).eq('status', 'pending')),
+  ]);
+  const myIds = new Set(mine.map((m) => m.project_id));
+  const search = String(query.search || '').trim().toLowerCase();
+  const list = projects.filter((p) => !myIds.has(p.id)
+    && (!search || p.name.toLowerCase().includes(search) || (p.description || '').toLowerCase().includes(search)));
+  const owners = await namesFor(list.map((p) => p.owner_id));
+  return {
+    projects: list.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      owner: owners[p.owner_id] || null,
+      members: memberships.filter((m) => m.project_id === p.id && m.role !== 'observer').length,
+      createdAt: p.created_at,
+      requestPending: requests.some((r) => r.project_id === p.id),
+    })),
+  };
+}
+
+// POST /api/projects/enter  { projectId, code }
+// Opening a project requires the project ID the owner shared (e.g. PRJ-7K2QXM9P).
+export async function enter({ user, body }) {
+  requireFields(body, ['projectId', 'code']);
+  const me = await requireRole(user.id, body.projectId, EVERYONE);
+  const project = await q(db.from('projects').select('id,name,project_code').eq('id', body.projectId).single());
+  if (String(body.code).trim().toUpperCase() !== project.project_code) {
+    throw new HttpError(403, 'That project ID is not correct. Ask the project owner for it.');
+  }
+  return { project: { id: project.id, name: project.name }, role: me.role };
+}
+
+// GET /api/projects/my-requests   -> your own requests to join other projects
+export async function myRequests({ user }) {
+  const rows = await q(db.from('join_requests').select('id,project_id,message,status,created_at,projects(name)')
+    .eq('user_id', user.id).order('created_at', { ascending: false }));
+  return {
+    requests: rows.map((r) => ({
+      id: r.id, projectId: r.project_id, projectName: r.projects?.name || null,
+      message: r.message, status: r.status, createdAt: r.created_at,
+    })),
+  };
+}
+
+// POST /api/projects/join-request/cancel  { requestId }
+export async function cancelJoinRequest({ user, body }) {
+  requireFields(body, ['requestId']);
+  const rows = await q(db.from('join_requests').delete()
+    .eq('id', body.requestId).eq('user_id', user.id).eq('status', 'pending').select('id'));
+  if (!rows.length) throw new HttpError(404, 'Pending request not found');
+  return { cancelled: true };
 }

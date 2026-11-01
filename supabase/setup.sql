@@ -416,3 +416,277 @@ alter publication supabase_realtime add table
   public.notifications, public.intents, public.agents, public.merge_requests,
   public.review_buckets, public.moderator_log, public.observer_requests,
   public.proposals, public.tasks, public.project_state;
+
+-- Project ID: a short code the owner shares. Members enter it to open the project.
+alter table public.projects add column if not exists project_code text;
+
+-- Give existing projects a code.
+update public.projects
+set project_code = 'PRJ-' || upper(substr(md5(random()::text || id::text), 1, 8))
+where project_code is null;
+
+alter table public.projects alter column project_code set not null;
+alter table public.projects add constraint projects_project_code_key unique (project_code);
+
+-- ===== 004: team workspace (departments, versioned context, per-developer copies, activity log) =====
+-- =====================================================================
+-- Teams + versioned context (Developer Workspace / Manager Review).
+-- Project -> Departments -> Developers. Managers = admin role, developers =
+-- worker role, each member belongs to one department.
+-- =====================================================================
+
+-- Demo people (created by POST /api/demo/setup) can be "acted as" by the owner.
+alter table public.profiles add column if not exists is_demo boolean not null default false;
+
+create table public.departments (
+  id          uuid primary key default gen_random_uuid(),
+  project_id  uuid not null references public.projects(id) on delete cascade,
+  slug        text not null,                -- also the context scope name
+  name        text not null,
+  manager_id  uuid references public.profiles(id),
+  color       text not null default '#1b7f4a',
+  paths       text[] not null default '{}', -- where this department's agents work
+  position    integer not null default 0,
+  unique (project_id, slug)
+);
+
+alter table public.project_members add column if not exists department text;     -- departments.slug
+alter table public.project_members add column if not exists context_seen_at timestamptz;
+
+-- Context sections. scope = 'central' or a department slug.
+create table public.context_sections (
+  project_id  uuid not null references public.projects(id) on delete cascade,
+  id          text not null,                -- stable key, e.g. 'c-payment-method'
+  scope       text not null,
+  title       text not null,
+  content     text not null,
+  version     integer not null default 1,
+  owner_id    uuid references public.profiles(id),
+  updated_by  uuid references public.profiles(id),
+  updated_at  timestamptz not null default now(),
+  why         text not null default '',
+  tags        jsonb not null default '[]'::jsonb,
+  guardrails  jsonb not null default '[]'::jsonb,
+  position    integer not null default 0,
+  primary key (project_id, id)
+);
+
+create table public.context_section_versions (
+  project_id  uuid not null references public.projects(id) on delete cascade,
+  section_id  text not null,
+  scope       text not null,
+  title       text not null,
+  version     integer not null,
+  content     text not null,
+  why         text not null default '',
+  changed_by  uuid references public.profiles(id),
+  changed_at  timestamptz not null default now(),
+  primary key (project_id, section_id, version)
+);
+
+create table public.scope_versions (
+  project_id  uuid not null references public.projects(id) on delete cascade,
+  scope       text not null,
+  version     integer not null default 1,
+  primary key (project_id, scope)
+);
+
+-- Project files. workspace = 'main' or a developer's user id.
+-- 'base:<user id>' holds the main snapshot a developer's copy started from (for 3-way merges).
+create table public.project_files (
+  project_id  uuid not null references public.projects(id) on delete cascade,
+  workspace   text not null,
+  path        text not null,
+  content     text not null,
+  updated_at  timestamptz not null default now(),
+  primary key (project_id, workspace, path)
+);
+
+-- Main project history (like git commits): one row per approved merge.
+create table public.main_commits (
+  id          uuid primary key default gen_random_uuid(),
+  project_id  uuid not null references public.projects(id) on delete cascade,
+  author_id   uuid references public.profiles(id),
+  message     text not null,
+  files       text[] not null default '{}',
+  created_at  timestamptz not null default now()
+);
+
+-- Workflow records keep key fields as columns and the full record in `data`.
+create table public.dev_tasks (
+  id          uuid primary key default gen_random_uuid(),
+  project_id  uuid not null references public.projects(id) on delete cascade,
+  user_id     uuid not null references public.profiles(id) on delete cascade,
+  department  text not null,
+  status      text not null,
+  data        jsonb not null,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+create table public.work_submissions (
+  id          uuid primary key default gen_random_uuid(),
+  project_id  uuid not null references public.projects(id) on delete cascade,
+  task_id     uuid references public.dev_tasks(id) on delete set null,
+  user_id     uuid not null references public.profiles(id) on delete cascade,
+  department  text not null,
+  status      text not null check (status in ('pending','approved','rejected','sent_back','merge_conflict')),
+  data        jsonb not null,
+  created_at  timestamptz not null default now()
+);
+
+create table public.context_proposals (
+  id             uuid primary key default gen_random_uuid(),
+  project_id     uuid not null references public.projects(id) on delete cascade,
+  submission_id  uuid not null references public.work_submissions(id) on delete cascade,
+  department     text not null,
+  status         text not null check (status in ('pending','applied','discarded')),
+  data           jsonb not null,
+  created_at     timestamptz not null default now()
+);
+
+-- Structured event log: every task, plan, warning, choice, review, context change.
+create table public.activity_log (
+  id             bigint generated always as identity primary key,
+  project_id     uuid not null references public.projects(id) on delete cascade,
+  at             timestamptz not null default now(),
+  type           text not null,
+  actor_id       uuid references public.profiles(id),
+  department     text,
+  task_id        uuid,
+  submission_id  uuid,
+  summary        text not null,
+  data           jsonb not null default '{}'::jsonb
+);
+
+create index on public.dev_tasks (project_id, user_id, created_at desc);
+create index on public.work_submissions (project_id, department, created_at desc);
+create index on public.context_proposals (submission_id);
+create index on public.activity_log (project_id, id desc);
+create index on public.context_section_versions (project_id, changed_at desc);
+
+-- ---------------------------------------------------------------------
+-- RLS: writes go through /api (service key). Members may read.
+-- ---------------------------------------------------------------------
+alter table public.departments              enable row level security;
+alter table public.context_sections         enable row level security;
+alter table public.context_section_versions enable row level security;
+alter table public.scope_versions           enable row level security;
+alter table public.project_files            enable row level security;
+alter table public.main_commits             enable row level security;
+alter table public.dev_tasks                enable row level security;
+alter table public.work_submissions         enable row level security;
+alter table public.context_proposals        enable row level security;
+alter table public.activity_log             enable row level security;
+
+create policy "insiders read departments" on public.departments
+  for select using (public.has_role(project_id, array['owner','admin','worker']));
+create policy "insiders read context" on public.context_sections
+  for select using (public.has_role(project_id, array['owner','admin','worker']));
+create policy "insiders read context history" on public.context_section_versions
+  for select using (public.has_role(project_id, array['owner','admin','worker']));
+create policy "insiders read scope versions" on public.scope_versions
+  for select using (public.has_role(project_id, array['owner','admin','worker']));
+create policy "insiders read activity" on public.activity_log
+  for select using (public.has_role(project_id, array['owner','admin','worker']));
+create policy "own dev tasks" on public.dev_tasks
+  for select using (user_id = auth.uid() or public.has_role(project_id, array['owner','admin']));
+create policy "read work submissions" on public.work_submissions
+  for select using (user_id = auth.uid() or public.has_role(project_id, array['owner','admin']));
+
+alter publication supabase_realtime add table
+  public.context_sections, public.dev_tasks, public.work_submissions, public.activity_log;
+
+
+-- ============================================================
+-- 005_unify.sql
+-- ============================================================
+-- =====================================================================
+-- 005: one data model.
+-- The team workspace (departments, versioned context, project files,
+-- developer copies, submissions, activity log) is the single source of truth.
+-- This moves what the first engine stored into it, gives every project a
+-- default "General" department, links assigned tasks to workspace tasks, and
+-- removes the duplicate tables.
+-- =====================================================================
+
+-- 1. Every project has at least one department, and every admin/worker is in one.
+insert into public.departments (project_id, slug, name, color, paths, position)
+select p.id, 'general', 'General', '#1b7f4a', '{}', 0
+from public.projects p
+where not exists (select 1 from public.departments d where d.project_id = p.id);
+
+update public.project_members m
+set department = coalesce(
+  (select d.slug from public.departments d where d.project_id = m.project_id and d.slug = 'general'),
+  (select d.slug from public.departments d where d.project_id = m.project_id order by d.position limit 1))
+where m.role in ('admin', 'worker') and m.department is null;
+
+-- Departments without a manager get the first admin in them.
+update public.departments d
+set manager_id = (select m.user_id from public.project_members m
+                  where m.project_id = d.project_id and m.department = d.slug and m.role = 'admin' and m.status = 'active'
+                  order by m.created_at limit 1)
+where d.manager_id is null;
+
+-- 2. The old project brief becomes a Central context section ("Project brief").
+insert into public.context_sections (project_id, id, scope, title, content, version, owner_id, updated_by, why, tags, guardrails, position)
+select s.project_id, 'c-brief', 'central', 'Project brief',
+       (select string_agg(initcap(replace(key, '_', ' ')) || ': ' || value, E'\n' order by key) from jsonb_each_text(s.brief)),
+       1, p.owner_id, p.owner_id, 'Moved from the project brief', '["*"]'::jsonb, '[]'::jsonb, 0
+from public.project_state s
+join public.projects p on p.id = s.project_id
+where s.brief <> '{}'::jsonb
+  and not exists (select 1 from public.context_sections c where c.project_id = s.project_id and c.scope = 'central');
+
+insert into public.context_section_versions (project_id, section_id, scope, title, version, content, why, changed_by)
+select c.project_id, c.id, c.scope, c.title, 1, c.content, c.why, c.owner_id
+from public.context_sections c
+where c.id = 'c-brief'
+  and not exists (select 1 from public.context_section_versions v where v.project_id = c.project_id and v.section_id = c.id);
+
+insert into public.scope_versions (project_id, scope, version)
+select distinct c.project_id, c.scope, 1 from public.context_sections c
+on conflict (project_id, scope) do nothing;
+
+-- 3. Approved files from the first engine become the main project files.
+insert into public.project_files (project_id, workspace, path, content)
+select s.project_id, 'main', f.key, f.value
+from public.project_state s, jsonb_each_text(s.files) f
+where not exists (select 1 from public.project_files x where x.project_id = s.project_id and x.workspace = 'main');
+
+insert into public.main_commits (project_id, author_id, message, files)
+select s.project_id, p.owner_id, 'Imported approved files', array(select jsonb_object_keys(s.files))
+from public.project_state s
+join public.projects p on p.id = s.project_id
+where s.files <> '{}'::jsonb
+  and not exists (select 1 from public.main_commits c where c.project_id = s.project_id);
+
+-- 4. Assigned tasks (by an admin) link to the workspace task that carries them out.
+alter table public.tasks add column if not exists department text;
+alter table public.tasks add column if not exists dev_task_id uuid references public.dev_tasks(id) on delete set null;
+update public.tasks t set department = m.department
+from public.project_members m
+where m.project_id = t.project_id and m.user_id = t.assignee_id and t.department is null;
+
+-- 5. Remove the duplicate engine.
+drop table if exists public.personal_history cascade;
+drop table if exists public.critic_reviews cascade;
+drop table if exists public.merge_requests cascade;
+drop table if exists public.review_buckets cascade;
+drop table if exists public.proposals cascade;
+drop table if exists public.intents cascade;
+drop table if exists public.agents cascade;
+drop table if exists public.dependency_edges cascade;
+drop table if exists public.dependency_nodes cascade;
+drop table if exists public.moderator_log cascade;
+drop table if exists public.project_state cascade;
+drop function if exists public.forbid_log_mutation() cascade;
+
+-- 6. Realtime for the tables the new pages listen to.
+do $$
+begin
+  begin alter publication supabase_realtime add table public.activity_log; exception when others then null; end;
+  begin alter publication supabase_realtime add table public.dev_tasks; exception when others then null; end;
+  begin alter publication supabase_realtime add table public.work_submissions; exception when others then null; end;
+end $$;

@@ -1,126 +1,124 @@
 # API Reference
 
-Every endpoint lives under `/api/...`. All except `GET /api/health` need the Supabase session token:
+Every endpoint is served by one Vercel function (`api/index.js`); the table below is generated from its route list, so it matches the code. All endpoints except `GET /api/health` need `Authorization: Bearer <supabase access token>`. Project endpoints take `projectId` (query for GET, body for POST). `team/*` endpoints also accept the owner-only `x-act-as` header (demo people).
 
-```
-Authorization: Bearer <supabase access_token>
-Content-Type: application/json
-```
+Roles: **owner** (created the project; codes, departments, roles), **admin** (manages one department: reviews and merges its work, assigns tasks), **worker** (developer with their own workspace and agent), **observer** (plain-language view, can request changes).
 
-Errors always come back as `{ "error": "plain message", "details": {...} }` with these status codes:
-`400` bad input · `401` not signed in · `403` wrong role · `404` not found · `409` conflict / overlap / already done · `422` agent context incomplete · `502/504` Claude problem.
+## Auth
 
-**Roles:** `owner` (created the project) · `admin` · `worker` · `observer`. "Managers" = owner + admin. "Engineers" = admin + worker (they have their own Builder + Critic). "Insiders" = owner + admin + worker.
-
----
-
-## Team split: who owns what
-
-| Person | Area | Files |
+| Method | Path | Handler |
 |---|---|---|
-| **1. Platform** | Auth, projects, codes, members, brief, tasks, notifications, history | `server/auth.js`, `server/projects.js`, `server/tasks.js`, `server/notifications.js`, `server/history.js` |
-| **2. Agents** | Builder + Critic agents, Claude client, prompts | `server/agents/builder.js`, `server/agents/critic.js`, `api/_lib/claude.js` |
-| **3. Moderator + Coordination** | Context packet, permanent log, dependency graph, overlap checks, staleness | `server/moderator.js`, `server/coordination.js`, `api/_lib/moderator.js`, `api/_lib/coordination.js`, `api/_lib/dependency-graph.js` |
-| **4. Reviews + Observer + GitHub** | Merge requests, bucketing, decisions, observer feed/requests, GitHub | `server/reviews.js`, `server/observer.js`, `server/github.js`, `api/_lib/reviews.js` |
+| GET | `/api/auth/me` | `auth.me` |
 
-Shared (change carefully, tell the team): `api/index.js` (router), `api/_lib/http.js`, `permissions.js`, `errors.js`, `supabase-admin.js`, `paths.js`, `log.js`, and the database schema.
+## Projects, codes, members, brief
 
-**Adding an endpoint:** write the handler in `server/` as `export async function name({ user, body, query })`, return a plain object, throw `HttpError` for errors, then add one line to the `routes` table in `api/index.js`.
+| Method | Path | Handler |
+|---|---|---|
+| POST | `/api/projects/create` | `projects.create` |
+| GET | `/api/projects/get` | `projects.get` |
+| POST | `/api/projects/observer-code` | `projects.regenerateObserverCode` |
+| POST | `/api/projects/admin-code` | `projects.createAdminCode` |
+| POST | `/api/projects/join` | `projects.join` |
+| POST | `/api/projects/admins/approve` | `projects.approveAdmin` |
+| POST | `/api/projects/join-request` | `projects.requestToJoin` |
+| POST | `/api/projects/join-request/respond` | `projects.respondJoinRequest` |
+| POST | `/api/projects/join-request/cancel` | `projects.cancelJoinRequest` |
+| GET | `/api/projects/discover` | `projects.discover` |
+| POST | `/api/projects/enter` | `projects.enter` |
+| GET | `/api/projects/my-requests` | `projects.myRequests` |
+| POST | `/api/projects/members/add` | `projects.addWorker` |
+| GET | `/api/projects/members` | `projects.members` |
+| POST | `/api/projects/update` | `projects.update` |
+| POST | `/api/projects/project-code` | `projects.regenerateProjectCode` |
+| POST | `/api/projects/members/remove` | `projects.removeMember` |
 
----
+## Tasks
 
-## 1. Platform
+| Method | Path | Handler |
+|---|---|---|
+| GET | `/api/tasks/list` | `tasks.list` |
+| POST | `/api/tasks/assign` | `tasks.assign` |
+| POST | `/api/tasks/status` | `tasks.setStatus` |
+| POST | `/api/tasks/delete` | `tasks.remove` |
 
-| Method | Endpoint | Who | Body / query | Returns |
-|---|---|---|---|---|
-| GET | `/api/health` | anyone | | `{ ok }` |
-| GET | `/api/auth/me` | signed in | | `{ user, projects: [{projectId, role, status, name}] }` |
-| POST | `/api/projects/create` | signed in | `{ name, description?, brief?, repo?: {owner, name, branch} }` | `{ project, observerCode }`. Creator becomes owner |
-| GET | `/api/projects/get` | everyone | `?projectId` | `{ project, role }` (observer code only for owner) |
-| POST | `/api/projects/observer-code` | owner | `{ projectId }` | `{ observerCode }`. Old code stops working |
-| POST | `/api/projects/admin-code` | owner | `{ projectId, expiresInDays? }` | `{ code, expiresAt }` |
-| POST | `/api/projects/join` | signed in | `{ code }` | `OBS-` → observer · `ADM-` → admin pending owner approval |
-| POST | `/api/projects/admins/approve` | owner | `{ projectId, userId, approve }` | `{ approved }`. Creates their Builder + Critic |
-| POST | `/api/projects/join-request` | signed in | `{ projectId, message? }` | `{ request }`. Managers notified |
-| POST | `/api/projects/join-request/respond` | managers | `{ requestId, accept }` | `{ accepted }` |
-| POST | `/api/projects/members/add` | managers | `{ projectId, email }` | adds a worker directly |
-| GET | `/api/projects/members` | insiders | `?projectId` | `{ members (with agents), joinRequests }` |
-| POST | `/api/projects/brief/preview` | managers | `{ projectId, brief }` | `{ changedFields, impact }`. **What would this affect?** (nothing saved) |
-| POST | `/api/projects/brief` | managers | `{ projectId, brief, reason? }` | `{ version, impact }`. New version, dependent work marked stale |
-| GET | `/api/tasks/list` | insiders | `?projectId&mine=true` | `{ tasks }` |
-| POST | `/api/tasks/assign` | managers | `{ projectId, assigneeId, title, description?, targets?: [paths], observerRequestId? }` | `{ task }`. Accepts an observer request when `observerRequestId` is set |
-| POST | `/api/tasks/status` | assignee / managers | `{ taskId, status }` | |
-| GET | `/api/notifications/list` | signed in | `?projectId&unread=true` | `{ notifications }` |
-| POST | `/api/notifications/read` | signed in | `{ ids }` or `{ all: true }` | `{ updated }` |
-| GET | `/api/history/list` | insiders | `?projectId&limit&before` | your own history only |
-| POST | `/api/history/delete` | owner of entries | `{ ids }` | `{ deleted }` |
+## Observer
 
-## 2. Agents
+| Method | Path | Handler |
+|---|---|---|
+| GET | `/api/observer/feed` | `observer.feed` |
+| POST | `/api/observer/request` | `observer.createRequest` |
+| GET | `/api/observer/requests` | `observer.listRequests` |
+| POST | `/api/observer/request/respond` | `observer.respond` |
 
-| Method | Endpoint | Who | Body | Returns |
-|---|---|---|---|---|
-| POST | `/api/agents/builder/run` | engineers | `{ projectId, instruction, targets?: [paths], taskId?, redirectFromMergeRequestId?, force? }` | `{ proposal, basedOnVersion, overlap }` |
-| POST | `/api/agents/critic/review` | proposal author | `{ proposalId }` | `{ review: { verdict, score, summary, issues } }` |
-| POST | `/api/agents/critic/prioritize` | managers | `{ projectId }` | `{ buckets }` ranked, with reason + recommendation |
+## Notifications
 
-**What `builder/run` does, in order:**
-1. Gets the context packet from the Moderator.
-2. **422** if a file the work depends on is missing (`details.missing`).
-3. Checks other agents' active work. **409** if someone is already on the same files (`details.overlap`); send `force: true` to continue anyway. "Dependent" overlaps are returned as warnings and passed to Claude.
-4. Declares an intent so other agents can see it.
-5. Asks Claude, validates the JSON, saves a **draft** proposal stamped with `base_version`.
+| Method | Path | Handler |
+|---|---|---|
+| GET | `/api/notifications/list` | `notifications.list` |
+| POST | `/api/notifications/read` | `notifications.markRead` |
 
-Nothing reaches the project until it is submitted and approved.
+## GitHub (optional)
 
-## 3. Moderator + Coordination
+| Method | Path | Handler |
+|---|---|---|
+| GET | `/api/github/tree` | `github.tree` |
+| GET | `/api/github/file` | `github.file` |
+| POST | `/api/github/import` | `github.importRepo` |
+| POST | `/api/github/branch` | `github.branch` |
+| POST | `/api/github/pull-request` | `github.pullRequest` |
 
-| Method | Endpoint | Who | Body / query | Returns |
-|---|---|---|---|---|
-| GET | `/api/moderator/context` | engineers | `?projectId&targets=a.jsx,b.jsx&taskId` | the full context packet (below) |
-| GET | `/api/moderator/log` | insiders | `?projectId&limit&before` | permanent approved changes, newest first |
-| GET | `/api/moderator/state` | insiders | `?projectId` | `{ version, brief, files }` |
-| GET | `/api/moderator/graph` | insiders | `?projectId` | `{ nodes, edges }` for the graph view |
-| POST | `/api/coordination/check` | engineers | `{ projectId, targets }` | `{ status: clear / dependent / same_target, conflicts, message }` |
-| POST | `/api/coordination/declare` | engineers | `{ projectId, goal, targets, taskId?, force? }` | `{ intent, overlap }` |
-| POST | `/api/coordination/release` | its owner / managers | `{ intentId }` | |
-| GET | `/api/coordination/board` | insiders | `?projectId` | `{ work: who is doing what, agents }` |
+## Team workspace: departments, versioned context, developer agents, manager review
 
-**Context packet:** `version`, `brief`, `task`, `relevantFiles` (content of targets + what they depend on), `fileIndex`, `requiredDependencies`, `missing`, `complete`, `recentChanges` (last 20 approved), `activeWorkByOthers` (goals + targets only, never their code), `myRecentHistory`.
+| Method | Path | Handler |
+|---|---|---|
+| GET | `/api/team/bootstrap` | `team.bootstrap` |
+| GET | `/api/team/context` | `team.context` |
+| POST | `/api/team/context/seen` | `team.contextSeen` |
+| GET | `/api/team/context/history` | `team.contextHistory` |
+| GET | `/api/team/log` | `team.log` |
+| GET | `/api/team/log/export` | `team.logExport` |
+| GET | `/api/team/commits` | `team.commits` |
+| GET | `/api/team/notifications` | `team.notifications` |
+| POST | `/api/team/notifications/read` | `team.notificationsRead` |
+| POST | `/api/team/members/department` | `team.setMemberDepartment` |
+| POST | `/api/team/demo/setup` | `team.demoSetup` |
+| GET | `/api/team/overview` | `teamOverview.overview` |
+| GET | `/api/team/my/submissions` | `teamOverview.mySubmissions` |
+| GET | `/api/team/my/assignments` | `teamOverview.myAssignments` |
+| POST | `/api/team/departments/create` | `teamOverview.createDepartment` |
+| POST | `/api/team/departments/update` | `teamOverview.updateDepartment` |
+| POST | `/api/team/departments/delete` | `teamOverview.deleteDepartment` |
+| POST | `/api/team/members/role` | `teamOverview.setRole` |
+| POST | `/api/team/context/preview` | `teamContext.preview` |
+| POST | `/api/team/context/save` | `teamContext.save` |
+| POST | `/api/team/context/create` | `teamContext.create` |
+| GET | `/api/team/task/current` | `teamWork.current` |
+| POST | `/api/team/task/start` | `teamWork.start` |
+| POST | `/api/team/task/conflict-decision` | `teamWork.conflictDecision` |
+| POST | `/api/team/task/plan-decision` | `teamWork.planDecision` |
+| POST | `/api/team/task/follow-up` | `teamWork.followUp` |
+| POST | `/api/team/task/retry` | `teamWork.retry` |
+| POST | `/api/team/task/cancel` | `teamWork.cancel` |
+| POST | `/api/team/task/submit` | `teamWork.submit` |
+| POST | `/api/team/task/context-decision` | `teamWork.contextDecision` |
+| POST | `/api/team/task/rework` | `teamWork.rework` |
+| POST | `/api/team/agent/restart` | `teamWork.restartAgent` |
+| GET | `/api/team/workspace/files` | `teamWork.files` |
+| GET | `/api/team/workspace/file` | `teamWork.file` |
+| GET | `/api/team/workspace/bundle` | `teamWork.bundle` |
+| GET | `/api/team/workspace/diff` | `teamWork.diff` |
+| GET | `/api/team/review/queue` | `teamReview.queue` |
+| GET | `/api/team/review/detail` | `teamReview.detail` |
+| POST | `/api/team/review/decide` | `teamReview.decide` |
+| GET | `/api/team/review/overview` | `teamReview.overview` |
+| POST | `/api/team/proposals/preview` | `teamImpact.preview` |
+| POST | `/api/team/proposals/confirm` | `teamImpact.confirm` |
+| POST | `/api/team/proposals/discard` | `teamImpact.discard` |
 
-**Graph keys:** `file:src/pages/Pricing.jsx` for files, `req:audience` for brief fields. Edge `A → B` = "A depends on B". Edges are added when a merge is approved, using the Builder's `depends_on`.
+## How the pieces connect
 
-## 4. Reviews + Observer + GitHub
-
-| Method | Endpoint | Who | Body / query | Returns |
-|---|---|---|---|---|
-| POST | `/api/reviews/submit` | engineers | `{ projectId, proposalIds, note? }` | `{ mergeRequest }` with a full change list |
-| POST | `/api/reviews/bucket` | managers | `{ projectId }` | `{ buckets }` regrouped |
-| GET | `/api/reviews/queue` | managers | `?projectId` | `{ buckets (with requests, proposals, critic reviews), needsAttention }` |
-| POST | `/api/reviews/decide` | managers | `{ projectId, decisions: [{ mergeRequestId, decision: approve / reject / redirect, note? }] }` | `{ results }` per request |
-| GET | `/api/observer/feed` | everyone | `?projectId` | `{ whatChanged, happeningNow, nextSteps, currentSite, goals }` in plain language |
-| POST | `/api/observer/request` | observer | `{ projectId, message }` | managers notified |
-| GET | `/api/observer/requests` | managers / observer | `?projectId` | `{ requests }` |
-| POST | `/api/observer/request/respond` | managers | `{ requestId, status: rejected / done, response? }` | to accept, assign a task instead |
-| GET | `/api/github/tree` | insiders | `?projectId&ref` | repo file list |
-| GET | `/api/github/file` | insiders | `?projectId&path&ref` | file content |
-| POST | `/api/github/import` | managers | `{ projectId, ref?, paths? }` | imports repo files as a new version |
-| POST | `/api/github/branch` | insiders | `{ projectId, name, from? }` | |
-| POST | `/api/github/pull-request` | managers | `{ projectId, head, base?, title, body? }` | `{ number, url }` |
-
-**Approve flow (`reviews/decide`):**
-1. **Conflict check.** If anything the request touches or depends on changed since its `base_version`, it becomes `conflict` and the worker is told to re-run.
-2. The Moderator commits the change as a new version and writes the permanent log with a plain-language summary.
-3. Dependency edges are recorded and the intents are released.
-4. Every unfinished proposal or request that depended on the changed files becomes `stale`, and its owner is notified.
-5. Linked tasks and observer requests are closed. The observer gets the update.
-
-Decisions run in order, so approving two clashing requests from one bucket approves the first and flags the second.
-
----
-
-## Status values
-
-- **Proposal:** draft → reviewed → submitted → approved / rejected / redirected, or **stale** at any point before approval
-- **Merge request:** pending → approved / rejected / redirected / **conflict** / **stale**
-- **Task:** open → in_progress → in_review → done
-- **Observer request:** pending → accepted → done, or rejected
+- **Assigned tasks follow agent work.** `tasks/assign` creates a task; the worker starts it in their workspace (`team/task/start` with `assignmentId`). Its status then moves by itself: started → in_progress, submitted → in_review, approved → done, sent back / rejected → in_progress. A task made from an observer request marks that request done and notifies the observer on approval.
+- **Agents know about each other.** When an agent plans, it compares its files with every other active task and warns both developers (`agent.overlap_warning`); the overlap shows on `team/overview`.
+- **Context is versioned.** `team/context/preview` shows who an edit affects; `team/context/save` needs a reason per edit, bumps versions, alerts developers whose active work depends on it, and marks pending submissions built on the old version as outdated.
+- **One source of truth.** Approved files live in `project_files` workspace `main`, with history in `main_commits`. Each developer has their own copy (`<userId>`) and base (`base:<userId>`); approval is a 3-way merge into main.
+- **Every admin and worker has a department** (a "General" one is created with each project), so every worker always has a workspace.

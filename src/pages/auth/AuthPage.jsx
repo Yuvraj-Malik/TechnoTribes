@@ -46,13 +46,25 @@ export default function AuthPage({ initialMode = 'login' }) {
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState(() => {
+    try {
+      if (sessionStorage.getItem('buildify:sessionEnded')) {
+        sessionStorage.removeItem('buildify:sessionEnded');
+        return 'Your session ended (for example, your password was changed). Please log in again.';
+      }
+    } catch { /* storage blocked */ }
+    return '';
+  });
   const [busy, setBusy] = useState(false);
   const refs = { name: useRef(null), email: useRef(null), password: useRef(null) };
   const navigate = useNavigate();
   const copy = COPY[mode];
 
+  // Clear messages when switching between log in / sign up / forgot (not on first load,
+  // so a "session ended" notice stays visible).
+  const firstRender = useRef(true);
   useEffect(() => {
+    if (firstRender.current) { firstRender.current = false; return; }
     setErrors({});
     setFormError('');
     setNotice('');
@@ -90,7 +102,7 @@ export default function AuthPage({ initialMode = 'login' }) {
         });
         if (error) throw error;
         if (data.session) {
-          navigate('/onboarding', { replace: true });
+          navigate('/dashboard', { replace: true });
         } else {
           setNotice(`We sent a confirmation link to ${email}. Open it to finish creating your account.`);
         }

@@ -32,27 +32,3 @@ export async function namesFor(userIds) {
 }
 
 // Every admin and worker gets one Builder and one Critic.
-export async function ensureAgents(projectId, userId) {
-  await q(db.from('agents').upsert(
-    [
-      { project_id: projectId, user_id: userId, kind: 'builder' },
-      { project_id: projectId, user_id: userId, kind: 'critic' },
-    ],
-    { onConflict: 'project_id,user_id,kind', ignoreDuplicates: true },
-  ));
-}
-
-export async function getAgent(projectId, userId, kind) {
-  const rows = await q(
-    db.from('agents').select('*').eq('project_id', projectId).eq('user_id', userId).eq('kind', kind),
-  );
-  if (rows[0]) return rows[0];
-  await ensureAgents(projectId, userId);
-  return getAgent(projectId, userId, kind);
-}
-
-export async function setAgentStatus(agentId, status, activity = null) {
-  await q(db.from('agents').update({
-    status, current_activity: activity, updated_at: new Date().toISOString(),
-  }).eq('id', agentId));
-}

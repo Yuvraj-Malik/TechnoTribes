@@ -3,19 +3,26 @@
 //   OBS-XXXXXXXX -> observer (sees progress in plain language)
 // Workers do not need a code: an admin adds them by email.
 import { useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../services/apiClient';
 import { useAuth } from '../../context/AuthContext';
 import { isProjectCode } from '../../utils/validation';
+import { markEntered } from '../../components/projects/ProjectGate';
 import AuthLayout from '../../components/auth/AuthLayout';
 import Field from '../../components/common/Field';
 import Alert from '../../components/common/Alert';
 import { primaryButton, heading, subheading, focusRing } from '../../components/common/styles';
 
 const ROLES = [
-  { id: 'founder', title: 'Founder', text: 'I am starting a project and make the final calls.' },
-  { id: 'teammate', title: 'Teammate', text: 'Admin, investor or advisor joining with a code.' },
+  { id: 'founder', title: 'Owner', text: 'I am starting a project.' },
+  { id: 'admin', title: 'Admin', text: 'I manage a team, with an ADM- code.' },
+  { id: 'observer', title: 'Observer', text: 'I follow progress, with an OBS- code.' },
 ];
+const START = { founder: 'founder', admin: 'admin', teammate: 'admin', observer: 'observer' };
+const CODE = {
+  admin: { prefix: 'ADM-', label: 'Admin code', placeholder: 'ADM-7K2QXM9P', hint: 'The project owner creates admin codes in Members. They approve you after you join.' },
+  observer: { prefix: 'OBS-', label: 'Observer code', placeholder: 'OBS-7K2QXM9P', hint: 'The project owner finds it in Settings. You will see progress in plain language and can ask for changes.' },
+};
 
 function RoleCard({ role, checked, onChange }) {
   const id = `role-${role.id}`;
@@ -47,6 +54,12 @@ function Done({ result, onContinue }) {
       <div className="mb-4 grid size-11 place-items-center rounded-full bg-ok text-[22px] text-white" aria-hidden="true">✓</div>
       <h1 className={heading}>{result.title}</h1>
       <p className={subheading}>{result.sub}</p>
+      {result.projectCode && (
+        <div className="mb-3 rounded-lg border-[1.5px] border-dashed border-accent bg-surface px-3.5 py-3">
+          <div className="text-[13px] text-dim">Project ID (team members enter this to open the project)</div>
+          <div className="font-display text-xl font-bold tracking-wide">{result.projectCode}</div>
+        </div>
+      )}
       {result.observerCode && (
         <div className="mb-[18px] rounded-lg border-[1.5px] border-dashed border-accent bg-surface px-3.5 py-3">
           <div className="text-[13px] text-dim">Observer code (share it with your investor or advisor)</div>
@@ -58,14 +71,15 @@ function Done({ result, onContinue }) {
           <li key={step} className="mb-2 rounded-lg border border-line bg-surface px-3.5 py-3 text-[15px]">{step}</li>
         ))}
       </ul>
-      <button type="button" className={primaryButton} onClick={onContinue}>Open my workspace</button>
+      <button type="button" className={primaryButton} onClick={onContinue}>Go to dashboard</button>
     </div>
   );
 }
 
 export default function OnboardingPage() {
-  const { user, signOut } = useAuth();
-  const [role, setRole] = useState('founder');
+  const { user } = useAuth();
+  const [params] = useSearchParams();
+  const [role, setRole] = useState(START[params.get('start')] ?? 'founder');
   const [workspace, setWorkspace] = useState('');
   const [code, setCode] = useState('');
   const [errors, setErrors] = useState({});
@@ -86,29 +100,37 @@ export default function OnboardingPage() {
       setErrors({ workspace: 'Name your workspace so teammates can find it.' });
       return wsRef.current?.focus();
     }
-    if (role === 'teammate' && !isProjectCode(code)) {
-      setErrors({ code: 'Enter the code in the form ADM-7K2QXM9P or OBS-7K2QXM9P.' });
+    if (role !== 'founder' && (!isProjectCode(code) || !code.trim().toUpperCase().startsWith(CODE[role].prefix))) {
+      setErrors({ code: `Enter the code in the form ${CODE[role].placeholder}.` });
       return codeRef.current?.focus();
     }
 
     setBusy(true);
     try {
       if (role === 'founder') {
-        const { project, observerCode } = await api('projects/create', { method: 'POST', body: { name: workspace.trim() } });
+        const { project, observerCode, projectCode } = await api('projects/create', { method: 'POST', body: { name: workspace.trim() } });
         setResult({
           projectId: project.id,
           title: `Welcome, ${firstName}`,
           sub: `Your workspace "${project.name}" is ready. You are its Owner.`,
           observerCode,
+          projectCode,
           steps: [
             'Write the project brief (this becomes version 1)',
-            'Create admin codes and invite your admins',
+            'Share the Project ID with your team, and create admin codes for your admins',
             'Admins add workers, and everyone gets their own Builder and Critic',
           ],
         });
       } else {
         const joined = await api('projects/join', { method: 'POST', body: { code: code.trim().toUpperCase() } });
         const asObserver = joined.role === 'observer';
+        // The observer code belongs to one project: open it straight away, no project ID needed.
+        // Already in the project as a worker/admin/owner: same project, observer view.
+        if (asObserver || joined.observing) {
+          markEntered(joined.projectId);
+          navigate(`/projects/${joined.projectId}${asObserver ? '' : '/updates'}`, { replace: true });
+          return;
+        }
         const pending = joined.status === 'pending';
         setResult({
           projectId: joined.projectId,
@@ -133,23 +155,23 @@ export default function OnboardingPage() {
   return (
     <AuthLayout
       top={(
-        <button type="button" onClick={signOut} className={`inline-flex min-h-11 cursor-pointer items-center border-0 bg-transparent p-0 text-sm font-semibold text-dim underline ${focusRing}`}>
-          Sign out
-        </button>
+        <Link to="/dashboard" className={`inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-dim no-underline hover:text-ink ${focusRing}`}>
+          <span aria-hidden="true">←</span> Back to dashboard
+        </Link>
       )}
     >
       {result ? (
-        <Done result={result} onContinue={() => navigate('/projects', { replace: true })} />
+        <Done result={result} onContinue={() => navigate('/dashboard', { replace: true })} />
       ) : (
         <>
           <h1 className={heading}>How will you use Buildify?</h1>
           <p className={subheading}>Your account is ready. Choose your role to finish setup.</p>
           <Alert tone="error">{formError}</Alert>
           <form onSubmit={onSubmit} noValidate>
-            <fieldset className="m-0 mb-[18px] grid grid-cols-1 gap-2.5 border-0 p-0 min-[400px]:grid-cols-2">
+            <fieldset className="m-0 mb-[18px] grid grid-cols-1 gap-2.5 border-0 p-0 sm:grid-cols-3">
               <legend className="mb-2 p-0 text-sm font-semibold">I am joining as</legend>
               {ROLES.map((r) => (
-                <RoleCard key={r.id} role={r} checked={role === r.id} onChange={() => setRole(r.id)} />
+                <RoleCard key={r.id} role={r} checked={role === r.id} onChange={() => { setRole(r.id); setErrors({}); }} />
               ))}
             </fieldset>
 
@@ -166,12 +188,12 @@ export default function OnboardingPage() {
             ) : (
               <Field
                 ref={codeRef}
-                label="Invite code"
-                placeholder="ADM-7K2QXM9P"
+                label={CODE[role].label}
+                placeholder={CODE[role].placeholder}
                 autoCapitalize="characters"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
-                hint="Admins get an ADM- code from the project owner. Observers get an OBS- code. Workers are added by an admin, no code needed."
+                hint={`${CODE[role].hint} Workers don't need a code: an admin adds them, or they ask to join from Explore.`}
                 error={errors.code}
               />
             )}
