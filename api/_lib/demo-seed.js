@@ -1,10 +1,15 @@
-// Demo seed for POST /api/team/demo/setup: the CampusEats sample app, three
-// departments, eight demo people, and four days of context history.
+// Demo seed for POST /api/team/demo/setup: the CampusEats sample app (the
+// sandboxed demo project), two departments, five demo people, and four days
+// of context history. The founder is the project owner (a real account).
+//
+// Context items have a kind. Plan: goal, must_do, must_not, decision, done.
+// Progress: progress (department, small features) and checkpoint (central,
+// major milestones flagged by a manager and confirmed by the founder).
+// `ownerId` / `by` values are person keys; 'founder' means the project owner.
 
 export const DEPARTMENTS = [
   { slug: 'frontend', name: 'Frontend', color: '#7c3aed', paths: ['web/'], manager: 'ananya' },
-  { slug: 'backend', name: 'Backend', color: '#0f766e', paths: ['server/routes/', 'server/db/'], manager: 'vikram' },
-  { slug: 'payments', name: 'Payments', color: '#b45309', paths: ['server/payments/', 'config/'], manager: 'kabir' },
+  { slug: 'backend', name: 'Backend', color: '#0f766e', paths: ['server/', 'config/'], manager: 'vikram' },
 ];
 
 export const PEOPLE = [
@@ -13,153 +18,186 @@ export const PEOPLE = [
   { key: 'meera', name: 'Meera', role: 'worker', department: 'frontend' },
   { key: 'vikram', name: 'Vikram', role: 'admin', department: 'backend' },
   { key: 'arjun', name: 'Arjun', role: 'worker', department: 'backend' },
-  { key: 'sana', name: 'Sana', role: 'worker', department: 'backend' },
-  { key: 'kabir', name: 'Kabir', role: 'admin', department: 'payments' },
-  { key: 'isha', name: 'Isha', role: 'worker', department: 'payments' },
 ];
 
-export const SCOPE_VERSIONS = { central: 2, frontend: 5, backend: 3, payments: 2 };
+export const SCOPE_VERSIONS = { central: 2, frontend: 5, backend: 3 };
+
+const once = (content, why, by, hoursAgo) => [{ content, why, by, hoursAgo }];
 
 export const SECTIONS = [
-  // ---------------------------------------------------------------- central
+  // ================================================================ central plan
   {
-    id: 'c-target-users', scope: 'central', title: 'Target users', ownerId: 'ananya',
-    tags: ['user', 'student', 'mobile', 'audience'],
-    history: [{
-      content: 'College students on campus (18 to 24), ordering on their phones between lectures. Typical order is ₹40 to ₹200, several times a week. Speed matters more than choice.',
-      why: 'Agreed at project kickoff.', by: 'ananya', hoursAgo: 96,
-    }],
+    id: 'c-goal', scope: 'central', kind: 'goal', title: 'Product goal', ownerId: 'founder',
+    tags: ['*', 'goal', 'student', 'order'],
+    history: once('Students order food from campus canteens on their phones between lectures and pick it up without queueing.',
+      'Agreed at project kickoff.', 'founder', 96),
   },
   {
-    id: 'c-core-features', scope: 'central', title: 'Core features', ownerId: 'vikram',
+    id: 'c-target-users', scope: 'central', kind: 'goal', title: 'Target users', ownerId: 'founder',
+    tags: ['user', 'student', 'mobile', 'audience'],
+    history: once('College students on campus (18 to 24), ordering on their phones between lectures. Typical order is ₹40 to ₹200, several times a week. Speed matters more than choice.',
+      'Agreed at project kickoff.', 'founder', 96),
+  },
+  {
+    id: 'c-core-features', scope: 'central', kind: 'done', title: 'Version 1 is done when', ownerId: 'founder',
     tags: ['feature', 'menu', 'cart', 'checkout', 'tracking', 'order'],
     history: [
-      { content: 'Menu browsing, cart and checkout.', why: 'Agreed at project kickoff.', by: 'vikram', hoursAgo: 96 },
-      {
-        content: 'Menu browsing, cart, checkout, and live order tracking (placed → preparing → ready → collected).',
-        why: 'Students asked to know when food is ready so they do not wait at the counter.', by: 'vikram', hoursAgo: 70,
-      },
+      { content: 'Students can browse the menu, add to a cart and check out.', why: 'Agreed at project kickoff.', by: 'founder', hoursAgo: 96 },
+      { content: 'Students can browse the menu, add to a cart, check out and pay, and follow their order live (placed → preparing → ready → collected).',
+        why: 'Students asked to know when food is ready so they do not wait at the counter.', by: 'founder', hoursAgo: 70 },
     ],
   },
   {
-    id: 'c-payment-method', scope: 'central', title: 'Payment method', ownerId: 'kabir',
+    id: 'c-payment-method', scope: 'central', kind: 'decision', title: 'Payment method', ownerId: 'founder',
     tags: ['payment', 'pay', 'card', 'upi', 'checkout', 'gateway', 'method'],
     guardrails: [{ phrase: 'cash', note: 'Cash on delivery is not offered. Students pay online at checkout.' }],
-    history: [{
-      content: 'Students pay by debit or credit card through the CampusPay payment gateway at checkout. No cash on delivery.',
-      why: 'CampusPay already has a contract with the university.', by: 'kabir', hoursAgo: 96,
-    }],
+    history: once('Students pay by debit or credit card through the CampusPay payment gateway at checkout. No cash on delivery.',
+      'CampusPay already has a contract with the university.', 'founder', 96),
   },
   {
-    id: 'c-order-api', scope: 'central', title: 'Order API contract', ownerId: 'vikram',
+    id: 'c-order-api', scope: 'central', kind: 'decision', title: 'Order API contract', ownerId: 'founder',
     tags: ['api', 'endpoint', 'order', 'status', 'contract', 'tracking'],
-    history: [{
-      content: 'POST /api/orders { items: [{ menuItemId, qty }] } → { orderId, total }\nGET /api/orders/:id → full order\nOrder status values: placed, preparing, ready, collected.',
-      why: 'Shared between Frontend (cart, tracking) and Backend.', by: 'vikram', hoursAgo: 90,
-    }],
+    history: once('POST /api/orders { items: [{ menuItemId, qty }] } → { orderId, total }\nGET /api/orders/:id → full order\nOrder status values: placed, preparing, ready, collected.',
+      'Shared between Frontend (cart, tracking) and Backend.', 'founder', 90),
   },
   {
-    id: 'c-payment-api', scope: 'central', title: 'Payment API contract', ownerId: 'kabir',
+    id: 'c-payment-api', scope: 'central', kind: 'decision', title: 'Payment API contract', ownerId: 'founder',
     tags: ['api', 'endpoint', 'payment', 'pay', 'card', 'contract', 'webhook'],
-    history: [{
-      content: "POST /api/payments { orderId, method: 'card' } → { paymentId, redirectUrl }\nThe browser goes to redirectUrl (CampusPay hosted card form) and comes back to /checkout?paid=1.\nPayment status values: pending, paid, failed, refunded.",
-      why: 'Shared between Frontend (checkout), Backend and Payments.', by: 'kabir', hoursAgo: 90,
-    }],
+    history: once("POST /api/payments { orderId, method: 'card' } → { paymentId, redirectUrl }\nThe browser goes to redirectUrl (CampusPay hosted card form) and comes back to /checkout?paid=1.\nPayment status values: pending, paid, failed, refunded.",
+      'Shared between Frontend (checkout) and Backend.', 'founder', 90),
   },
   {
-    id: 'c-tech', scope: 'central', title: 'Tech choices', ownerId: 'ananya',
+    id: 'c-tech', scope: 'central', kind: 'must_do', title: 'Tech choices', ownerId: 'founder',
     tags: ['tech', 'stack', 'framework', 'database', 'hosting'],
     guardrails: [{ phrase: 'react', note: 'The student site is plain HTML, CSS and JS with no build step.' }],
-    history: [{
-      content: 'Student site: plain HTML, CSS and JS, no build step. API: Node + Express. Database: Postgres. Hosted on the campus cloud.',
-      why: 'Keep it simple so student volunteers can maintain it.', by: 'ananya', hoursAgo: 96,
-    }],
+    history: once('Student site: plain HTML, CSS and JS, no build step. API: Node + Express. Database: Postgres. Hosted on the campus cloud.',
+      'Keep it simple so student volunteers can maintain it.', 'founder', 96),
   },
-  // ---------------------------------------------------------------- frontend
   {
-    id: 'fe-checkout', scope: 'frontend', title: 'Checkout page design', ownerId: 'ananya',
+    id: 'c-no-card-data', scope: 'central', kind: 'must_not', title: 'Never handle card numbers', ownerId: 'founder',
+    tags: ['payment', 'card', 'security', 'store'],
+    guardrails: [{ phrase: 'card number', note: 'Card numbers never touch CampusEats servers or storage; the gateway handles them.' }],
+    history: once('CampusEats never receives, stores or logs card numbers. Payment details go straight to the gateway.',
+      'Keeps us out of card-data compliance scope.', 'founder', 96),
+  },
+  // ================================================================ central progress (checkpoints only)
+  {
+    id: 'c-cp-menu-cart', scope: 'central', kind: 'checkpoint', title: 'Menu and cart live', ownerId: 'founder',
+    tags: ['menu', 'cart'], meta: { flaggedBy: 'ananya', department: 'frontend', confirmedBy: 'founder' },
+    history: once('Students can browse the North Canteen menu and build a cart on their phones.',
+      'Flagged by Ananya (Frontend) and confirmed by the founder.', 'founder', 60),
+  },
+
+  // ================================================================ frontend plan
+  {
+    id: 'fe-checkout', scope: 'frontend', kind: 'decision', title: 'Checkout page design', ownerId: 'ananya',
     tags: ['checkout', 'payment', 'pay', 'card', 'form', 'page', 'upi'],
     history: [
       { content: 'Checkout shows the order summary and a Pay button.', why: 'First sketch.', by: 'ananya', hoursAgo: 90 },
-      {
-        content: 'Single page: order summary at the top, then the payment form (card number, expiry, CVV, name on card), then one big "Pay ₹total" button. Mobile first, tap targets at least 44px. Show errors next to the field.',
-        why: 'Design review with two student testers.', by: 'ananya', hoursAgo: 60,
-      },
+      { content: 'Single page: order summary at the top, then the payment form (card number, expiry, CVV, name on card), then one big "Pay ₹total" button. Mobile first, tap targets at least 44px. Show errors next to the field.',
+        why: 'Design review with two student testers.', by: 'ananya', hoursAgo: 60 },
     ],
   },
   {
-    id: 'fe-conventions', scope: 'frontend', title: 'Component conventions', ownerId: 'ananya',
+    id: 'fe-conventions', scope: 'frontend', kind: 'must_do', title: 'Component conventions', ownerId: 'ananya',
     tags: ['*', 'component', 'css', 'style', 'convention', 'button'],
+    history: [
+      { content: 'Reuse classes from web/css/styles.css (.card, .btn, .pill).', why: 'Initial convention.', by: 'ananya', hoursAgo: 96 },
+      { content: 'Reuse classes from web/css/styles.css (.card, .btn, .pill). Each page keeps its JS in web/js/<page>.js.',
+        why: 'Pages were sharing one big script.', by: 'ananya', hoursAgo: 26 },
+    ],
+  },
+  {
+    id: 'fe-no-frameworks', scope: 'frontend', kind: 'must_not', title: 'No UI frameworks or inline styles', ownerId: 'ananya',
+    tags: ['*', 'css', 'style', 'framework'],
     guardrails: [
       { phrase: 'bootstrap', note: 'No UI frameworks or CSS libraries. Reuse web/css/styles.css.' },
       { phrase: 'tailwind', note: 'No UI frameworks or CSS libraries. Reuse web/css/styles.css.' },
-      { phrase: 'inline style', note: 'No inline styles. Add a class to web/css/styles.css instead (since Component conventions v3).' },
+      { phrase: 'inline style', note: 'No inline styles. Add a class to web/css/styles.css instead.' },
     ],
     history: [
-      { content: 'Reuse classes from web/css/styles.css (.card, .btn, .pill).', why: 'Initial convention.', by: 'ananya', hoursAgo: 96 },
-      { content: 'Reuse classes from web/css/styles.css (.card, .btn, .pill). No UI frameworks or CSS libraries.', why: 'Someone tried adding Bootstrap.', by: 'ananya', hoursAgo: 80 },
-      {
-        content: 'Reuse classes from web/css/styles.css (.card, .btn, .pill). No UI frameworks or CSS libraries. No inline styles: add a class to styles.css. Each page keeps its JS in web/js/<page>.js.',
-        why: 'Inline styles made the dark-mode experiment impossible.', by: 'ananya', hoursAgo: 26,
-      },
+      { content: 'No UI frameworks or CSS libraries.', why: 'Someone tried adding Bootstrap.', by: 'ananya', hoursAgo: 80 },
+      { content: 'No UI frameworks or CSS libraries, and no inline styles: add a class to styles.css.',
+        why: 'Inline styles made the dark-mode experiment impossible.', by: 'ananya', hoursAgo: 26 },
     ],
   },
   {
-    id: 'fe-tracking', scope: 'frontend', title: 'Order tracking page', ownerId: 'ananya',
+    id: 'fe-tracking', scope: 'frontend', kind: 'goal', title: 'Order tracking page', ownerId: 'ananya',
     tags: ['tracking', 'order', 'status', 'page'],
-    history: [{
-      content: 'Planned: web/orders.html polls GET /api/orders/:id every 10 seconds and shows a 4-step progress bar.',
-      why: 'Follows the new Core features (order tracking).', by: 'ananya', hoursAgo: 68,
-    }],
+    history: once('Build web/orders.html: polls GET /api/orders/:id every 10 seconds and shows a 4-step progress bar.',
+      'Follows Central › Version 1 is done when (order tracking).', 'ananya', 68),
   },
-  // ---------------------------------------------------------------- backend
   {
-    id: 'be-order-api', scope: 'backend', title: 'Order API', ownerId: 'vikram',
+    id: 'fe-done', scope: 'frontend', kind: 'done', title: 'A frontend page is done when', ownerId: 'ananya',
+    tags: ['*', 'page', 'mobile'],
+    history: once('It works on a 360px-wide phone, has no console errors, and every button has a tap target of at least 44px.',
+      'Most students order on small Android phones.', 'ananya', 70),
+  },
+  // ================================================================ frontend progress
+  {
+    id: 'fe-p-menu', scope: 'frontend', kind: 'progress', title: 'Menu page built', ownerId: 'ananya',
+    tags: ['menu', 'page'],
+    history: once('web/index.html shows the North Canteen menu with an Add button per item (web/js/menu.js).',
+      'Rohan finished the menu page.', 'rohan', 72),
+  },
+  {
+    id: 'fe-p-cart', scope: 'frontend', kind: 'progress', title: 'Cart kept between pages', ownerId: 'ananya',
+    tags: ['cart', 'checkout'],
+    history: once('The cart is saved in localStorage (web/js/cart.js) and the checkout page lists it with the total. Payment step not built yet.',
+      'Meera finished the cart.', 'meera', 62),
+  },
+
+  // ================================================================ backend plan
+  {
+    id: 'be-order-api', scope: 'backend', kind: 'decision', title: 'Order API', ownerId: 'vikram',
     tags: ['order', 'api', 'endpoint', 'status', 'route'],
-    history: [{
-      content: 'server/routes/orders.js. POST /api/orders creates an order (status "placed"). GET /api/orders/:id returns it. Status moves placed → preparing → ready → collected; only canteen staff move it forward.',
-      why: 'Implements the Order API contract.', by: 'vikram', hoursAgo: 88,
-    }],
+    history: once('server/routes/orders.js. POST /api/orders creates an order (status "placed"). GET /api/orders/:id returns it. Status moves placed → preparing → ready → collected; only canteen staff move it forward.',
+      'Implements the Order API contract.', 'vikram', 88),
   },
   {
-    id: 'be-schema', scope: 'backend', title: 'Database schema', ownerId: 'vikram',
+    id: 'be-schema', scope: 'backend', kind: 'decision', title: 'Database schema', ownerId: 'vikram',
     tags: ['database', 'schema', 'table', 'index', 'column', 'migration', 'payment'],
     history: [
       { content: 'Tables: students, menu_items, orders, order_items.', why: 'First schema.', by: 'vikram', hoursAgo: 92 },
-      {
-        content: "Tables: students, menu_items, orders, order_items, payments. payments.method is 'card'; payments.status is pending, paid, failed or refunded. Schema lives in server/db/schema.sql.",
-        why: 'Added payments table for the card gateway.', by: 'vikram', hoursAgo: 84,
-      },
+      { content: "Tables: students, menu_items, orders, order_items, payments. payments.method is 'card'; payments.status is pending, paid, failed or refunded. Schema lives in server/db/schema.sql.",
+        why: 'Added payments table for the card gateway.', by: 'vikram', hoursAgo: 84 },
     ],
   },
   {
-    id: 'be-payment-api', scope: 'backend', title: 'Payment endpoints', ownerId: 'vikram',
+    id: 'be-payment-api', scope: 'backend', kind: 'decision', title: 'Payment endpoints', ownerId: 'vikram',
     tags: ['payment', 'pay', 'card', 'gateway', 'webhook', 'endpoint'],
-    history: [{
-      content: 'POST /api/payments calls server/payments/gateway.js to create a card payment and returns the hosted card form URL. POST /api/payments/webhook marks the payment paid and the order "preparing".',
-      why: 'Implements the Payment API contract.', by: 'vikram', hoursAgo: 86,
-    }],
+    history: once('POST /api/payments calls server/payments/gateway.js to create a card payment and returns the hosted card form URL. POST /api/payments/webhook marks the payment paid and the order "preparing".',
+      'Implements the Payment API contract.', 'vikram', 86),
   },
-  // ---------------------------------------------------------------- payments
   {
-    id: 'pay-provider', scope: 'payments', title: 'Payment provider', ownerId: 'kabir',
+    id: 'be-provider', scope: 'backend', kind: 'decision', title: 'Payment provider', ownerId: 'vikram',
     tags: ['payment', 'provider', 'gateway', 'card', 'upi', 'method'],
     history: [
-      { content: 'CampusPay Gateway.', why: 'University contract.', by: 'kabir', hoursAgo: 96 },
-      {
-        content: 'CampusPay Gateway, cards only (Visa, Mastercard, RuPay) through its hosted card form. We never see or store card numbers. Config in config/payments.json.',
-        why: 'Hosted form keeps us out of card-data compliance scope.', by: 'kabir', hoursAgo: 85,
-      },
+      { content: 'CampusPay Gateway.', why: 'University contract.', by: 'vikram', hoursAgo: 96 },
+      { content: 'CampusPay Gateway, cards only (Visa, Mastercard, RuPay) through its hosted card form. Config in config/payments.json.',
+        why: 'Hosted form keeps card numbers away from us (Central › Never handle card numbers).', by: 'vikram', hoursAgo: 85 },
     ],
   },
   {
-    id: 'pay-refunds', scope: 'payments', title: 'Refund rules', ownerId: 'kabir',
+    id: 'be-refunds', scope: 'backend', kind: 'must_do', title: 'Refund rules', ownerId: 'vikram',
     tags: ['refund', 'cancel', 'payment', 'card'],
     guardrails: [{ phrase: 'wallet credit', note: 'Refunds go back to the original payment method, never as wallet credit.' }],
-    history: [{
-      content: 'Students can cancel within 5 minutes or before the kitchen starts preparing. Refunds go back to the original card in 5 to 7 working days.',
-      why: 'Agreed with the canteen manager.', by: 'kabir', hoursAgo: 85,
-    }],
+    history: once('Students can cancel within 5 minutes or before the kitchen starts preparing. Refunds go back to the original card in 5 to 7 working days.',
+      'Agreed with the canteen manager.', 'vikram', 85),
+  },
+  {
+    id: 'be-no-browser-secrets', scope: 'backend', kind: 'must_not', title: 'No gateway keys in the browser', ownerId: 'vikram',
+    tags: ['payment', 'gateway', 'key', 'secret', 'security'],
+    guardrails: [{ phrase: 'api key', note: 'Gateway keys stay on the server (config is server-side only).' }],
+    history: once('Gateway keys and secrets live only on the server. The browser only ever gets a redirect URL or a payment id.',
+      'Security review.', 'vikram', 84),
+  },
+  // ================================================================ backend progress
+  {
+    id: 'be-p-orders', scope: 'backend', kind: 'progress', title: 'Order endpoints built', ownerId: 'vikram',
+    tags: ['order', 'endpoint'],
+    history: once('POST /api/orders and GET /api/orders/:id are built in server/routes/orders.js, plus GET /api/menu.',
+      'Arjun finished the order and menu routes.', 'arjun', 66),
   },
 ];
 

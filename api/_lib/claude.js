@@ -3,8 +3,10 @@ import { HttpError } from './errors.js';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 export const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-5-5';
+// Smaller model for routine checks (the reviewer); the main model does planning and code.
+export const ROUTINE_MODEL = process.env.CLAUDE_ROUTINE_MODEL || 'claude-haiku-5-5';
 
-export async function callClaude({ system, prompt, maxTokens = 4000, timeoutMs = 60000 }) {
+export async function callClaude({ system, prompt, maxTokens = 4000, timeoutMs = 60000, model = CLAUDE_MODEL }) {
   if (!process.env.ANTHROPIC_API_KEY) throw new HttpError(500, 'ANTHROPIC_API_KEY is not set');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -18,7 +20,7 @@ export async function callClaude({ system, prompt, maxTokens = 4000, timeoutMs =
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: CLAUDE_MODEL,
+        model,
         max_tokens: maxTokens,
         system,
         messages: [{ role: 'user', content: prompt }],

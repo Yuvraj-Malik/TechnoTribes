@@ -38,7 +38,7 @@ test('demo setup seeds departments, people, context and files', async () => {
   people = Object.fromEntries(r.people.map((p) => [p.name.toLowerCase(), p.id]));
   const boot = await call('GET', 'team/bootstrap', { as: 'rohan' });
   assert.equal(boot.me.isDeveloper, true);
-  assert.equal(boot.departments.length, 3);
+  assert.equal(boot.departments.length, 2);
   assert.equal(boot.agentMode, 'mock');
 });
 
@@ -47,14 +47,14 @@ test('only the owner can act as demo people', async () => {
   fake.tables.project_members.push({ project_id: projectId, user_id: intruder.id, role: 'worker', status: 'active', department: 'frontend' });
   let status;
   const res = { status(c) { status = c; return res; }, json() { return res; } };
-  await handler({ method: 'GET', headers: { authorization: `Bearer ${intruder.token}`, 'x-act-as': people.kabir }, body: {}, query: { route: 'team/bootstrap', projectId } }, res);
+  await handler({ method: 'GET', headers: { authorization: `Bearer ${intruder.token}`, 'x-act-as': people.vikram }, body: {}, query: { route: 'team/bootstrap', projectId } }, res);
   assert.equal(status, 403);
 });
 
 test('conflict warning before acting', async () => {
   const t = await start('meera', 'Restyle the checkout with Bootstrap');
   assert.equal(t.status, 'needs_conflict_decision');
-  assert.equal(t.conflicts[0].sectionId, 'fe-conventions');
+  assert.equal(t.conflicts[0].sectionId, 'fe-no-frameworks');
   await call('POST', 'team/task/conflict-decision', { as: 'meera', body: { taskId: t.id, choice: 'cancel' } });
 });
 
@@ -65,22 +65,27 @@ test('demo scenario: cross-department change, mid-task alert, outdated submissio
   assert.equal(rohan.status, 'done');
   assert.ok(rohan.changedFiles.includes('web/checkout.html'));
 
-  const arjun = await start('arjun', 'Add an order status endpoint');
-  assert.ok(!arjun.relevantSectionIds.includes('c-payment-api'), 'an order endpoint does not depend on payments');
-  await confirmPlan('arjun', arjun);
+  const orderTask = await start('arjun', 'Add an order status endpoint');
+  assert.ok(!orderTask.relevantSectionIds.includes('c-payment-api'), 'an order endpoint does not depend on payments');
+  await call('POST', 'team/task/cancel', { as: 'arjun', body: { taskId: orderTask.id } });
 
-  const isha = await confirmPlan('isha', await start('isha', 'Switch from card payments to UPI only'));
-  const sub = await call('POST', 'team/task/submit', { as: 'isha', body: { taskId: isha.id, why: 'CampusPay is ending card support' } });
+  const upi = await confirmPlan('arjun', await start('arjun', 'Switch from card payments to UPI only'));
+  const sub = await call('POST', 'team/task/submit', { as: 'arjun', body: { taskId: upi.id, why: 'CampusPay is ending card support' } });
   assert.equal(sub.submitted, true);
 
-  const { proposal } = await call('POST', 'team/review/decide', { as: 'kabir', body: { submissionId: sub.submission.id, action: 'approve' } });
+  const { proposal } = await call('POST', 'team/review/decide', { as: 'vikram', body: { submissionId: sub.submission.id, action: 'approve' } });
   assert.equal(proposal.impact.scope, 'cross_department');
-  assert.deepEqual([...proposal.impact.affectedDepartments].sort(), ['backend', 'frontend']);
+  assert.deepEqual([...proposal.impact.affectedDepartments].sort(), ['frontend']);
   assert.ok(proposal.impact.notify.some((n) => n.userId === people.rohan && n.affectsActiveWork));
   assert.ok(!proposal.changes.some((c) => c.sectionId === 'fe-conventions'), '.card CSS class is not a payment card');
-  assert.ok(proposal.impact.unaffected.some((u) => u.userId === people.arjun));
 
-  await call('POST', 'team/proposals/confirm', { as: 'kabir', body: { proposalId: proposal.id } });
+  const confirmed = await call('POST', 'team/proposals/confirm', { as: 'vikram', body: { proposalId: proposal.id } });
+  // Backend's own changes apply now; central + Frontend changes are a central matter: the founder decides.
+  const toFounder = confirmed.suggestions.find((s) => s.status === 'pending_founder');
+  assert.ok(toFounder, 'central and other departments\' changes wait for the founder');
+  assert.ok(confirmed.suggestions.some((s) => s.scope === 'backend' && s.status === 'approved'));
+  assert.equal((await call('GET', 'team/context', { as: 'rohan' })).central.find((s) => s.id === 'c-payment-method').version, 1, 'not before the founder approves');
+  await call('POST', 'team/suggestions/decide', { body: { suggestionId: toFounder.id, action: 'approve' } });
   const ctx = await call('GET', 'team/context', { as: 'rohan' });
   assert.equal(ctx.central.find((s) => s.id === 'c-payment-method').version, 2);
   assert.equal(ctx.scopeVersions.central, 3, 'one confirmed update bumps a scope once');
@@ -88,7 +93,6 @@ test('demo scenario: cross-department change, mid-task alert, outdated submissio
   rohan = await current('rohan');
   assert.equal(rohan.status, 'needs_context_decision');
   assert.match(rohan.contextAlert.relation, /card/);
-  assert.equal((await current('arjun')).status, 'done', 'Arjun is undisturbed');
 
   rohan = (await call('POST', 'team/task/context-decision', { as: 'rohan', body: { taskId: rohan.id, choice: 'adjust', newText: rohan.contextAlert.suggestedTask } }));
   assert.equal(rohan.status, 'awaiting_plan_approval');
@@ -119,11 +123,11 @@ test('demo scenario: cross-department change, mid-task alert, outdated submissio
 });
 
 test('approving work built on files main has since changed reports a merge conflict', async () => {
-  // Sana's seeded submission edits server/db/schema.sql; change the same file in main first.
+  // Arjun's seeded "Index orders by student" edits server/db/schema.sql; change the same file in main first.
   const files = fake.tables.project_files.find((f) => f.workspace === 'main' && f.path === 'server/db/schema.sql');
   files.content += '\n-- edited directly in main\n';
-  const sana = (await call('GET', 'team/review/queue', { as: 'vikram' })).items.find((s) => s.userId === people.sana);
-  const r = await call('POST', 'team/review/decide', { as: 'vikram', body: { submissionId: sana.id, action: 'approve' } });
+  const old = (await call('GET', 'team/review/queue', { as: 'vikram' })).items.find((s) => s.title === 'Index orders by student');
+  const r = await call('POST', 'team/review/decide', { as: 'vikram', body: { submissionId: old.id, action: 'approve' } });
   assert.equal(r.submission.status, 'merge_conflict');
   assert.deepEqual(r.submission.mergeInfo.conflictedFiles, ['server/db/schema.sql']);
 });
@@ -131,8 +135,8 @@ test('approving work built on files main has since changed reports a merge confl
 test('overview shows departments, the live board and the owner-only codes', async () => {
   const o = await call('GET', 'team/overview');
   assert.equal(o.me.role, 'owner');
-  assert.ok(o.departments.length >= 3);
-  assert.ok(o.board.length >= 4);
+  assert.ok(o.departments.length >= 2);
+  assert.ok(o.board.length >= 3);
   assert.ok(o.stats.merges >= 1);
   const asDev = await call('GET', 'team/overview', { as: 'rohan' });
   assert.equal(asDev.project.observer_code, undefined, 'codes are hidden when acting as someone else');

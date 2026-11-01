@@ -7,6 +7,7 @@ import { useTeam } from '../../context/TeamContext';
 import { scopeName } from '../../constants/statuses';
 import { timeAgo } from '../../utils/time';
 import { Avatar, Badge, Card, PanelTitle, cx } from '../../components/common/ui';
+import RevertPanel from '../../components/common/RevertPanel';
 
 const CATEGORY = {
   tasks: { label: 'Tasks & submissions', tone: 'blue', icon: '✎' },
@@ -58,8 +59,13 @@ function Details({ e }) {
   return <pre className="m-0 mt-2 max-h-64 overflow-auto rounded bg-bg p-2 font-mono text-[11px] text-dim">{JSON.stringify(d, null, 2)}</pre>;
 }
 
+/** Context changes go back to the version before; merges can be undone. */
+const revertable = (e) => (['context.changed', 'context.removed'].includes(e.type) && e.data?.fromVersion >= 1)
+  || (e.type === 'merge.done' && !!e.submissionId);
+
 export default function ProjectStory() {
-  const { boot, personById, nameOf, deptById, get, tick } = useTeam();
+  const { boot, me, personById, nameOf, deptById, get, tick } = useTeam();
+  const [reverting, setReverting] = useState(null);
   const [events, setEvents] = useState([]);
   const [commits, setCommits] = useState([]);
   const [cats, setCats] = useState(new Set(['tasks', 'agent', 'decisions', 'reviews', 'context']));
@@ -136,6 +142,18 @@ export default function ProjectStory() {
                     <div className="mt-1 text-sm text-ink">{e.summary}</div>
                     {open.has(e.id) && <Details e={e} />}
                   </button>
+                  {me.isManager && revertable(e) && (reverting === e.id ? (
+                    <div className="mt-1">
+                      <RevertPanel
+                        kind={e.type === 'merge.done' ? 'merge' : 'context'} itemId={e.itemId ?? e.data?.sectionId}
+                        toVersion={e.data?.fromVersion} submissionId={e.submissionId} onClose={() => setReverting(null)}
+                      />
+                    </div>
+                  ) : (
+                    <button type="button" className="mt-1 cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold text-accent underline" onClick={() => setReverting(e.id)}>
+                      {e.type === 'merge.done' ? 'Undo this merge…' : `Revert to v${e.data?.fromVersion}…`}
+                    </button>
+                  ))}
                 </li>
               );
             })}

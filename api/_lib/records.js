@@ -1,4 +1,4 @@
-// Workflow records (dev tasks, work submissions, context proposals): key
+// Workflow records (dev tasks, work submissions, context proposals, context suggestions): key
 // fields as columns for querying, the full record as JSON in `data`.
 import { randomUUID } from 'node:crypto';
 import { db, q } from './supabase-admin.js';
@@ -30,3 +30,8 @@ function table(name, columns) {
 export const devTasks = table('dev_tasks', (t) => ({ user_id: t.userId, department: t.department }));
 export const workSubmissions = table('work_submissions', (s) => ({ user_id: s.userId, department: s.department, task_id: s.taskId }));
 export const contextProposals = table('context_proposals', (p) => ({ submission_id: p.submissionId, department: p.department }));
+// Suggestions: the only way shared context changes (see api/_lib/suggestions.js).
+export const suggestions = table('context_suggestions', (s) => ({
+  department: s.department ?? null, scope: s.scope, label: s.label ?? null,
+  suggested_by: s.suggestedBy ?? null, task_id: s.taskId ?? null, decided_at: s.decidedAt ?? null,
+}));

@@ -24,6 +24,7 @@ function projectTabs({ me, projectId }) {
   return [
     t('', 'Overview', 'home'),
     t('/review', 'Review', 'review'),
+    t('/approvals', 'Approvals', 'lock'),
     t('/tasks', 'Tasks', 'check'),
     t('/context', 'Context', 'key'),
     t('/team', owner ? 'Members' : 'Team', 'users'),

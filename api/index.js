@@ -14,6 +14,10 @@ import * as team from '../server/team.js';
 import * as teamWork from '../server/team-workspace.js';
 import * as teamReview from '../server/team-review.js';
 import * as teamImpact from '../server/team-impact.js';
+import * as teamSuggestions from '../server/team-suggestions.js';
+import * as teamGoals from '../server/team-goals.js';
+import * as teamRequests from '../server/team-requests.js';
+import * as teamSafety from '../server/team-safety.js';
 import * as teamContext from '../server/team-context.js';
 import * as teamOverview from '../server/team-overview.js';
 
@@ -103,6 +107,10 @@ export const routes = {
   'GET team/workspace/file': teamWork.file,
   'GET team/workspace/bundle': teamWork.bundle,
   'GET team/workspace/diff': teamWork.diff,
+  'GET team/workspace/status': teamWork.status,
+  'POST team/task/share': teamWork.share,
+  'POST team/task/action-decision': teamWork.actionDecision,
+  'POST team/task/undo-edits': teamWork.undoEdits,
 
   'GET team/review/queue': teamReview.queue,
   'GET team/review/detail': teamReview.detail,
@@ -111,9 +119,38 @@ export const routes = {
   'POST team/proposals/preview': teamImpact.preview,
   'POST team/proposals/confirm': teamImpact.confirm,
   'POST team/proposals/discard': teamImpact.discard,
+
+  // Suggestions: the only way shared context changes (routed by plain code), queues, checkpoints
+  'POST team/suggestions/create': teamSuggestions.create,
+  'POST team/suggestions/decide': teamSuggestions.decide,
+  'GET team/suggestions/queue': teamSuggestions.queue,
+  'GET team/suggestions/mine': teamSuggestions.mine,
+  'GET team/suggestions/get': teamSuggestions.get,
+  'POST team/checkpoints/flag': teamSuggestions.flagCheckpoint,
+
+  // Goals: the orchestrator drafts tasks per department; managers assign them
+  'POST team/goals/plan': teamGoals.plan,
+  'GET team/goals/drafts': teamGoals.drafts,
+  'POST team/goals/assign': teamGoals.assign,
+
+  // Requests between departments
+  'POST team/requests/create': teamRequests.create,
+  'GET team/requests/list': teamRequests.list,
+  'POST team/requests/decline': teamRequests.decline,
+
+  // Safety net: revert, search by meaning, drift check, irreversible actions
+  'GET team/revert/preview': teamSafety.revertPreview,
+  'POST team/revert/context': teamSafety.revertContext,
+  'GET team/revert/merge-preview': teamSafety.mergeRevertPreview,
+  'POST team/revert/merge': teamSafety.revertMerge,
+  'GET team/search': teamSafety.search,
+  'POST team/drift/run': teamSafety.driftRun,
+  'GET team/drift/latest': teamSafety.driftLatest,
+  'GET team/drift/cron': teamSafety.driftCron,
 };
 
-const PUBLIC = new Set(['GET health']);
+// The drift cron checks its own secret (Vercel Cron sends Authorization: Bearer $CRON_SECRET).
+const PUBLIC = new Set(['GET health', 'GET team/drift/cron']);
 
 // Which endpoint was asked for. Works however the request arrives:
 //   Vercel, original URL kept:  /api/team/task/start

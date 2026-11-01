@@ -6,7 +6,7 @@ import { HttpError } from '../api/_lib/errors.js';
 import { requireRole, OWNER } from '../api/_lib/permissions.js';
 import { asArray } from '../api/_lib/http.js';
 import { listDepartments, listPeople, teamActor } from '../api/_lib/team.js';
-import { getScopeVersions, insertSection, listSections, listVersions } from '../api/_lib/context.js';
+import { getScopeVersions, insertSection, listSections, listVersions, layers } from '../api/_lib/context.js';
 import { diffMaps, resetWorkspace, writeAll, writeEdits, BASE, readAll } from '../api/_lib/files.js';
 import { logEvent, toEvent } from '../api/_lib/activity.js';
 import { devTasks, workSubmissions } from '../api/_lib/records.js';
@@ -47,6 +47,8 @@ export async function context(ctx) {
     department: sections.filter((s) => s.scope === actor.department),
     // The owner edits every department's context.
     all: actor.role === 'owner' && !actor.actingAs ? sections : undefined,
+    // The same items as layers, each split into plan (what is required) and progress (what is built).
+    layers: layers(sections, actor.department),
     scopeVersions, lastSeenAt,
     changedSinceLastVisit: changed.filter((v) => visible(v.scope)),
   };
@@ -73,6 +75,9 @@ export async function log(ctx) {
   await teamActor({ user: ctx.user, req: ctx.req, projectId });
   let query = db.from('activity_log').select('*').eq('project_id', projectId);
   if (ctx.query.department) query = query.or(`department.eq.${ctx.query.department},department.is.null`);
+  // level=central: the central log only; level=department (with department): that department's log only.
+  if (ctx.query.level === 'central') query = query.eq('level', 'central');
+  if (ctx.query.level === 'department') query = query.eq('level', 'department');
   const rows = await q(query.order('id', { ascending: false }).limit(Math.min(Number(ctx.query.limit) || 500, 2000)));
   return { events: rows.map(toEvent) };
 }
@@ -128,7 +133,7 @@ export async function setMemberDepartment({ user, body }) {
 }
 
 // ---------------------------------------------------------------- demo setup
-const TEAM_TABLES = ['context_proposals', 'work_submissions', 'dev_tasks', 'activity_log', 'main_commits', 'project_files',
+const TEAM_TABLES = ['context_suggestions', 'context_proposals', 'work_submissions', 'dev_tasks', 'activity_log', 'main_commits', 'project_files',
   'scope_versions', 'context_section_versions', 'context_sections', 'departments'];
 
 async function demoPerson(p) {
@@ -144,8 +149,9 @@ async function demoPerson(p) {
 
 /**
  * POST /api/team/demo/setup { projectId, reset? }   (owner)
- * Seeds CampusEats: three departments, eight demo people (SIMULATED, labelled),
- * four days of context history, the sample app, and two older submissions.
+ * Seeds CampusEats: two departments (Frontend, Backend), five demo people
+ * (SIMULATED, labelled), the founder (= the project owner), four days of plan
+ * and progress history, the sample app, and two older submissions.
  */
 export async function demoSetup({ user, body }) {
   const projectId = body.projectId;
@@ -156,7 +162,7 @@ export async function demoSetup({ user, body }) {
   await q(db.from('notifications').delete().eq('project_id', projectId).in('kind', ['submission', 'review', 'context_change', 'task_alert']));
 
   const ago = (h) => new Date(Date.now() - h * 3600_000).toISOString();
-  const ids = {};
+  const ids = { founder: user.id };
   for (const p of PEOPLE) {
     ids[p.key] = await demoPerson(p);
     await q(db.from('profiles').update({ is_demo: true, display_name: p.name }).eq('id', ids[p.key]));
@@ -170,7 +176,8 @@ export async function demoSetup({ user, body }) {
   }))));
 
   for (const [i, s] of SECTIONS.entries()) {
-    await insertSection(projectId, { ...s, ownerId: ids[s.ownerId] }, i,
+    const meta = Object.fromEntries(Object.entries(s.meta ?? {}).map(([k, v]) => [k, ids[v] ?? v]));
+    await insertSection(projectId, { ...s, meta, ownerId: ids[s.ownerId] }, i,
       s.history.map((h) => ({ content: h.content, why: h.why, by: ids[h.by], at: ago(h.hoursAgo) })));
   }
   await q(db.from('scope_versions').insert(Object.entries(SCOPE_VERSIONS).map(([scope, version]) => ({ project_id: projectId, scope, version }))));
@@ -180,9 +187,23 @@ export async function demoSetup({ user, body }) {
   for (const p of PEOPLE.filter((x) => x.role === 'worker')) await resetWorkspace(projectId, ids[p.key]);
 
   await q(db.from('activity_log').insert({
-    project_id: projectId, at: ago(96), type: 'seed', summary: 'Project CampusEats created with central context and Frontend, Backend and Payments departments.',
-    data: { simulatedHistory: true },
+    project_id: projectId, at: ago(96), type: 'seed', level: 'central', title: 'Project started',
+    plain: 'CampusEats started with a product goal, a plan for version 1, and Frontend and Backend teams.',
+    summary: 'Project CampusEats created with central context and Frontend and Backend departments.',
+    data: { simulatedHistory: true }, links: [],
   }));
+  // Past checkpoints: a central log entry each, linked to the department progress behind them.
+  for (const s of SECTIONS.filter((x) => x.kind === 'checkpoint')) {
+    const h = s.history[s.history.length - 1];
+    const dept = s.meta?.department ?? null;
+    await q(db.from('activity_log').insert({
+      project_id: projectId, at: ago(h.hoursAgo), type: 'checkpoint.confirmed', level: 'central', actor_id: user.id,
+      department: null, item_id: s.id, checkpoint_id: s.id, title: `Checkpoint: ${s.title}`, plain: h.content,
+      links: SECTIONS.filter((x) => x.kind === 'progress' && x.scope === dept).map((x) => ({ type: 'item', id: x.id })),
+      summary: `Founder confirmed the checkpoint "${s.title}" flagged by ${dept ? DEPARTMENTS.find((d) => d.slug === dept).name : 'a manager'}`,
+      data: { sectionId: s.id, department: dept, simulatedHistory: true },
+    }));
+  }
 
   const schema = SAMPLE_FILES['server/db/schema.sql'];
   await seedOldSubmission(projectId, ids, {
@@ -194,7 +215,7 @@ export async function demoSetup({ user, body }) {
     sections: { 'c-payment-method': 1, 'c-payment-api': 1, 'fe-checkout': 2, 'fe-conventions': 3 }, at: ago(20),
   });
   await seedOldSubmission(projectId, ids, {
-    key: 'sana', department: 'backend', title: 'Index orders by student', text: 'Speed up "my orders" lookups.',
+    key: 'arjun', department: 'backend', title: 'Index orders by student', text: 'Speed up "my orders" lookups.',
     summary: 'Adds an index on orders(student_id) in server/db/schema.sql so a student\'s order list loads quickly.',
     why: 'The "my orders" query scans the whole orders table; it will get slow during lunch rush.',
     edits: [{ path: 'server/db/schema.sql', content: `${schema}\ncreate index orders_student_idx on orders (student_id);\n` }],
