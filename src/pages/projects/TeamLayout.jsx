@@ -24,6 +24,7 @@ function projectTabs({ me, projectId }) {
   return [
     t('', 'Overview', 'home'),
     t('/review', 'Review', 'review'),
+    t('/approvals', 'Approvals', 'lock'),
     t('/tasks', 'Tasks', 'check'),
     t('/code', 'Code', 'code'),
     t('/context', 'Context', 'key'),

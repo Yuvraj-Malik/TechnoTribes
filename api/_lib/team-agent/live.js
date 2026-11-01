@@ -1,7 +1,7 @@
 // LIVE agent: calls Claude (api/_lib/claude.js) and validates the JSON it
 // returns. Same interface as the simulated agent. Context guardrails and
 // impact analysis stay deterministic; Claude adds judgement on top.
-import { callClaudeJSON } from '../claude.js';
+import { callClaudeJSON, ROUTINE_MODEL } from '../claude.js';
 import { mockAgent } from './mock.js';
 
 const SYSTEM = `You are a software agent on CampusEats, a food-ordering web app for a college campus, built by several departments (Frontend, Backend, Payments).
@@ -24,14 +24,15 @@ PROJECT CONTEXT (relevant sections)
 ${renderSections(i.sections)}
 
 ALL FILES IN THE WORKSPACE
-${i.fileIndex.join('\n')}`;
+${i.fileIndex.join('\n')}
+${i.memory?.length ? `\nPAST NOTES ABOUT THIS (learn from them; rejected suggestions were rejected for a reason)\n${i.memory.map((m) => `- [${m.type}] ${m.title}: ${m.text}`).join('\n')}` : ''}`;
 
 // Small validators: throw on the wrong shape so callClaudeJSON retries once.
 const str = (v, name) => { if (typeof v !== 'string') throw new Error(`${name} must be a string`); return v; };
 const arr = (v, name) => { if (!Array.isArray(v)) throw new Error(`${name} must be an array`); return v; };
 
-async function ask(prompt, validate, maxTokens = 4000) {
-  return callClaudeJSON({ system: SYSTEM, prompt, maxTokens, timeoutMs: 55000 }, validate);
+async function ask(prompt, validate, maxTokens = 4000, model = undefined) {
+  return callClaudeJSON({ system: SYSTEM, prompt, maxTokens, timeoutMs: 55000, ...(model ? { model } : {}) }, validate);
 }
 
 /** Non-critical calls fall back to the simulated agent instead of blocking a human decision. */
@@ -147,6 +148,43 @@ ${renderSections(input.sections)}`,
         const ids = new Set(input.sections.map((s) => s.id));
         return r.updates.filter((u) => ids.has(u.sectionId));
       }, () => mockAgent.rewriteAffected(input), onFallback);
+    },
+
+    /**
+     * Reviewer: does this change contradict the plan? Advises only (flags);
+     * runs on the smaller model. If it errors, the router sends the change to a person.
+     */
+    async review({ change, scope, planItems, recent }) {
+      const r = await ask(`You review a change to the ${scope} context before it is applied without a person looking.
+CHANGE: ${change.title}: ${change.content}
+RECENT CHANGES BY THE SAME AGENT (look at them together): ${recent.map((x) => x.title).join('; ') || 'none'}
+
+PLAN (central and department)
+${renderSections(planItems)}
+
+Flag ONLY real contradictions with a plan item (a rule it breaks, a decision it goes against). Say if you are not sure.
+Schema: { "flags": [ { "itemId": string, "explanation": string } ], "confident": boolean }`,
+      (o) => ({ flags: arr(o.flags, 'flags'), confident: o.confident !== false }), 1500, ROUTINE_MODEL);
+      const ids = new Set(planItems.map((s) => s.id));
+      return { flags: r.flags.filter((f) => ids.has(f.itemId)).map((f) => ({ itemId: f.itemId, explanation: String(f.explanation) })), confident: r.confident };
+    },
+
+    /** Orchestrator: break a goal into draft tasks per department. */
+    async orchestrate({ goal, centralPlan, departments }) {
+      const r = await ask(`Goal from the founder or a manager: ${goal}
+
+CENTRAL PLAN
+${renderSections(centralPlan)}
+
+DEPARTMENTS
+${departments.map((d) => `- ${d.id} (${d.name}), works in ${d.paths.join(', ') || 'the whole project'}\n${renderSections(d.plan)}`).join('\n')}
+
+Break the goal into the smallest set of tasks, at most one or two per department, only for departments that are needed.
+Each task must stay inside its department's area. Link the plan items it serves.
+Schema: { "tasks": [ { "department": string, "title": string, "description": string, "planItemIds": string[] } ] }`,
+      (o) => ({ tasks: arr(o.tasks, 'tasks') }));
+      const ids = new Set(departments.map((d) => d.id));
+      return { tasks: r.tasks.filter((t) => ids.has(t.department)).map((t) => ({ department: t.department, title: str(t.title, 'title'), description: String(t.description ?? ''), planItemIds: (t.planItemIds ?? []).map(String) })) };
     },
 
     async adjustTask(input) {

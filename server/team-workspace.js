@@ -3,23 +3,26 @@
 // request (Vercel stops a function once it responds), and every step updates
 // the task, writes the activity log, and notifies when needed.
 import { HttpError } from '../api/_lib/errors.js';
-import { devTasks, workSubmissions } from '../api/_lib/records.js';
-import { logEvent, notifyMany } from '../api/_lib/activity.js';
-import { getDepartment, listPeople, requireDeveloper, teamActor, workDepartment } from '../api/_lib/team.js';
+import { devTasks, suggestions, workSubmissions } from '../api/_lib/records.js';
+import { logEvent, notifyMany, toEvent } from '../api/_lib/activity.js';
+import { getDepartment, listDepartments, listPeople, requireDeveloper, teamActor, workDepartment } from '../api/_lib/team.js';
 import {
-  builtOnFor, guardrailConflicts, listSections, mentions, outdatedSince, relevantSections,
+  builtOnFor, getScopeVersions, guardrailConflicts, listSections, mentions, outdatedSince, relevantSections,
 } from '../api/_lib/context.js';
 import {
-  BASE, ensureWorkspace, isBehindMain, readAll, readOne, resetWorkspace, safePath, syncWithMain, workspaceDiff, writeEdits,
+  BASE, diffMaps, ensureWorkspace, isBehindMain, readAll, readOne, resetWorkspace, safePath, syncWithMain, workspaceDiff, writeEdits,
 } from '../api/_lib/files.js';
 import { agentMode, getTeamAgent } from '../api/_lib/team-agent/index.js';
 import { db, q } from '../api/_lib/supabase-admin.js';
 import { getAssignment, syncAssignment } from '../api/_lib/assignments.js';
+import { createSuggestion } from '../api/_lib/suggestions.js';
+import { createRequest } from './team-requests.js';
+import { search as searchPast } from '../api/_lib/search.js';
 import { ownerOf } from '../api/_lib/log.js';
 
 /** Statuses where the developer can start a fresh task. */
 const FINISHED = ['submitted', 'approved', 'rejected', 'cancelled'];
-const ACTIVE = ['reading_context', 'checking_conflicts', 'needs_conflict_decision', 'planning', 'awaiting_plan_approval', 'working', 'done', 'needs_context_decision', 'sent_back'];
+const ACTIVE = ['reading_context', 'checking_conflicts', 'needs_conflict_decision', 'planning', 'awaiting_plan_approval', 'working', 'done', 'needs_context_decision', 'needs_action_approval', 'sent_back'];
 const nowIso = () => new Date().toISOString();
 
 // ---------------------------------------------------------------- helpers
@@ -77,7 +80,7 @@ async function agentInput(t, sections, extraFiles = []) {
   const fileIndex = Object.keys(files).sort();
   const wanted = new Set([...fileIndex.filter((f) => department.paths.some((p) => f.startsWith(p))), ...extraFiles]);
   return {
-    task: t.text, user: { id: t.userId, name: t.userName }, department, sections, fileIndex,
+    task: t.text, user: { id: t.userId, name: t.userName }, department, sections, fileIndex, memory: t.memory ?? [],
     files: [...wanted].filter((p) => p in files).map((path) => ({ path, content: files[path] })),
   };
 }
@@ -106,11 +109,15 @@ async function intake(t) {
   const sections = relevantSections(all, t.text, t.department);
   const builtOn = await builtOnFor(t.projectId, sections.map((s) => s.id));
   say(t, 'agent', `I read ${sections.length} context sections that relate to this task: ${sections.map((s) => `${s.title} v${s.version}`).join(', ')}.`);
-  await saveTask(t, { relevantSectionIds: sections.map((s) => s.id), builtOn, status: 'checking_conflicts' });
+  await saveTask(t, { relevantSectionIds: sections.map((s) => s.id), builtOn, seenScopes: builtOn.scopes, acknowledged: {}, status: 'checking_conflicts' });
   await taskLog(t, 'agent.context_read', `${t.userName}'s agent read ${sections.length} relevant context sections`, {
     sections: sections.map((s) => ({ id: s.id, title: s.title, version: s.version, scope: s.scope })), builtOn,
   });
 
+  // Past notes, decisions and rejected suggestions about the same thing, so the agent does not repeat a mistake.
+  const memory = (await searchPast(t.projectId, t.text, { department: t.department, limit: 3 })).results;
+  t.memory = memory.map((m) => ({ type: m.type, title: m.title, text: m.text }));
+  if (memory.length) say(t, 'agent', `I also checked past notes: ${memory.map((m) => `“${m.title}” (${m.type})`).join('; ')}.`);
   const input = await agentInput(t, sections);
   const conflicts = dedupe([...guardrailConflicts(t.text, sections), ...(await getTeamAgent(t.projectId).checkConflicts(input))]);
   if (conflicts.length) {
@@ -145,6 +152,19 @@ export async function peerOverlap(t) {
   return out;
 }
 
+/**
+ * File claims: when a plan is confirmed, the agent claims the files it will
+ * change. Until that work is submitted, approved or cancelled, no other agent
+ * may write them (first come, first served). Returns path -> holder.
+ */
+async function claimHolders(t) {
+  const live = ACTIVE.filter((x) => x !== 'sent_back');
+  const others = (await devTasks.list(t.projectId, { status: live }, 300)).filter((o) => o.userId !== t.userId && o.claims?.length);
+  const held = new Map();
+  for (const o of others) for (const f of o.claims) if (!held.has(f)) held.set(f, { userId: o.userId, name: o.userName, task: o.text, taskId: o.id });
+  return held;
+}
+
 async function warnAboutPeers(t) {
   const peers = await peerOverlap(t);
   t.peers = peers;
@@ -158,9 +178,50 @@ async function warnAboutPeers(t) {
   }, { actorId: t.userId, department: t.department, taskId: t.id });
 }
 
+/**
+ * Before each agent step: did context the task uses change since the agent read
+ * it? One cheap query when nothing changed (scope versions); otherwise only the
+ * changed items are looked at. Changes the task depends on pause it with the
+ * "context changed" card; other changes are just noted in the activity.
+ * Returns true when the step must stop.
+ */
+async function contextMoved(t) {
+  if (!t.builtOn) return false;
+  const scopes = await getScopeVersions(t.projectId);
+  const seen = t.seenScopes ?? t.builtOn.scopes ?? {};
+  if (Object.entries(scopes).every(([k, v]) => (seen[k] ?? v) === v)) return false;
+  const sections = await listSections(t.projectId);
+  const ack = t.acknowledged ?? {};
+  const changes = sections.flatMap((s) => {
+    const base = Math.max(t.builtOn.sections?.[s.id] ?? 0, ack[s.id] ?? 0);
+    return t.relevantSectionIds.includes(s.id) && base && s.version > base
+      ? [{ sectionId: s.id, title: s.title, scope: s.scope, fromVersion: base, toVersion: s.version, why: s.why }]
+      : [];
+  });
+  const moved = Object.keys(scopes).filter((k) => (seen[k] ?? scopes[k]) !== scopes[k]);
+  t.seenScopes = scopes;
+  if (!changes.length) {
+    say(t, 'agent', `Picked up the latest context (${moved.map((k) => `${k === 'central' ? 'Central' : k} v${scopes[k]}`).join(', ')}). Nothing this task uses changed.`);
+    await saveTask(t);
+    return false;
+  }
+  await saveTask(t);
+  const summary = changes.map((c) => `${c.title} changed (v${c.fromVersion} → v${c.toVersion}): ${c.why}`).join(' ');
+  await raiseContextAlert(t.projectId, t.userId, changes, summary, []);
+  Object.assign(t, await devTasks.get(t.id));
+  return t.status === 'needs_context_decision';
+}
+
+/** A department's agents may only change files under its paths (no paths = the whole project). */
+export const inArea = (department, path) => !department?.paths?.length || department.paths.some((p) => path.startsWith(p));
+
 async function planStep(t) {
+  if (await contextMoved(t)) return;
   await saveTask(t, { status: 'planning' });
   const plan = await getTeamAgent(t.projectId).plan(await agentInput(t, await sectionsOf(t)));
+  // Say up front which planned files the agent will not be allowed to change.
+  const department = await getDepartment(t.projectId, t.department);
+  plan.outsideArea = (plan.files ?? []).filter((f) => !inArea(department, f));
   say(t, 'agent', 'Here is what I understood and what I will do. Confirm or edit it.');
   t.plan = plan;
   await warnAboutPeers(t);
@@ -169,17 +230,151 @@ async function planStep(t) {
 }
 
 async function workStep(t, followUp) {
+  if (await contextMoved(t)) return;
   await saveTask(t, { status: 'working' });
   const input = await agentInput(t, await sectionsOf(t), t.plan?.files ?? []);
   const result = await getTeamAgent(t.projectId).edit({ ...input, plan: t.plan, followUp, previousSummary: t.summary });
-  const edits = result.edits.flatMap((e) => { try { return [{ path: safePath(e.path), content: e.content }]; } catch { return []; } });
+  const all = result.edits.flatMap((e) => { try { return [{ path: safePath(e.path), content: e.content }]; } catch { return []; } });
+  // Blocked, not just discouraged: files outside the department's area are never written.
+  const inMyArea = all.filter((e) => inArea(input.department, e.path));
+  const blocked = all.filter((e) => !inArea(input.department, e.path)).map((e) => e.path);
+  // Files another agent has claimed are not written either.
+  const held = await claimHolders(t);
+  const edits = inMyArea.filter((e) => !held.has(e.path));
+  const clashes = inMyArea.filter((e) => held.has(e.path)).map((e) => e.path);
+  if (clashes.length) {
+    const who = [...new Set(clashes.map((f) => held.get(f).name))].join(', ');
+    say(t, 'system', `Not written: ${clashes.join(', ')} ${clashes.length === 1 ? 'is' : 'are'} claimed by ${who}'s agent. Wait for that work, change the plan, or ask your manager.`);
+    t.blocked = [...(t.blocked ?? []), { files: clashes, at: new Date().toISOString(), heldBy: clashes.map((f) => held.get(f)) }];
+    await logEvent(t.projectId, {
+      type: 'permission.blocked', actorId: t.userId, department: t.department, level: 'department', taskId: t.id,
+      title: `Blocked: ${t.userName}'s agent tried to change files another agent is working on`,
+      plain: `${t.userName}'s agent tried to change ${clashes.join(', ')}, which ${who}'s agent is working on. Nothing was written.`,
+      summary: `${t.userName}'s agent was blocked from ${clashes.join(', ')} (claimed by ${who})`,
+      data: { agentOf: t.userId, files: clashes, reason: 'claimed', heldBy: clashes.map((f) => held.get(f)) },
+    });
+  }
+  t.claims = [...new Set([...(t.claims ?? []), ...edits.map((e) => e.path)])];
+  if (blocked.length) {
+    const owner = (await listDepartments(t.projectId)).find((d) => d.id !== t.department && blocked.every((p) => inArea(d, p)));
+    const hint = owner ? ` Send ${owner.name} a request instead.` : '';
+    say(t, 'system', `Blocked: your agent tried to change ${blocked.join(', ')}, which is outside ${input.department.name}'s area.${hint}`);
+    t.blocked = [...(t.blocked ?? []), { files: blocked, at: new Date().toISOString(), owner: owner?.id ?? null }];
+    await logEvent(t.projectId, {
+      type: 'permission.blocked', actorId: t.userId, department: t.department, level: 'department', taskId: t.id,
+      title: `Blocked: ${t.userName}'s agent tried to change another area`,
+      plain: `${t.userName}'s agent tried to change ${blocked.join(', ')}, which belongs to ${owner?.name ?? 'another department'}. Nothing was written.`,
+      summary: `${t.userName}'s agent was blocked from changing ${blocked.join(', ')} (outside ${input.department.name})`,
+      data: { agentOf: t.userId, files: blocked, ownerDepartment: owner?.id ?? null },
+    });
+  }
+  // Irreversible actions (deleting files or data, deploying, messaging real users)
+  // are never done on the agent's own: show what would happen and ask first.
+  const current = await readAll(t.projectId, t.userId);
+  const risky = irreversible(edits, current);
+  if (risky.length) {
+    const preview = diffMaps(Object.fromEntries(edits.map((e) => [e.path, current[e.path]]).filter(([, v]) => v !== undefined)),
+      Object.fromEntries(edits.filter((e) => e.content !== null).map((e) => [e.path, e.content])));
+    t.pendingAction = { edits, result, followUp: followUp ?? null, reasons: risky, diff: preview.diff, at: new Date().toISOString() };
+    say(t, 'agent', `Before I do this, I need your OK: ${risky.map((r) => r.what).join('; ')}. Nothing has been written yet.`);
+    await saveTask(t, { status: 'needs_action_approval' });
+    await taskLog(t, 'agent.asks_permission', `${t.userName}'s agent asked before an irreversible action: ${risky.map((r) => r.what).join('; ')}`, { reasons: risky });
+    return;
+  }
+  await finishWork(t, edits, result, followUp);
+}
+
+/** Writes the agent's edits and records the result (shared by the normal path and an approved irreversible action). */
+async function finishWork(t, edits, result, followUp) {
   await writeEdits(t.projectId, t.userId, edits);
-  const { files } = await workspaceDiff(t.projectId, t.userId);
+  const { diff: diffText, files } = await workspaceDiff(t.projectId, t.userId);
+  t.summaryDraft = await draftSummary(t, { ...result, why: followUp && t.whyDraft ? t.whyDraft : result.why }, files, diffText);
   say(t, 'agent', followUp ? `Done: ${result.summary}` : `Finished. ${result.summary}`);
-  await saveTask(t, { status: 'done', summary: result.summary, whyDraft: followUp && t.whyDraft ? t.whyDraft : result.why, changedFiles: files, critique: null });
+  await saveTask(t, { status: 'done', summary: result.summary, whyDraft: followUp && t.whyDraft ? t.whyDraft : result.why, changedFiles: files, critique: null, pendingAction: null });
   await taskLog(t, 'agent.edits', `Agent changed ${edits.length} file(s) in ${t.userName}'s workspace`, {
     files: edits.map((e) => e.path), summary: result.summary, followUp: followUp ?? null,
   });
+}
+
+const DATA_LOSS = /\b(drop\s+table|drop\s+column|truncate|delete\s+from)\b/i;
+const MESSAGING = /\b(sendEmail|sendSms|sendMail|nodemailer|twilio|sendgrid|mailgun|resend\.emails)\b/;
+
+/** Which edits would do something that cannot be undone (from facts, not the agent's opinion). */
+export function irreversible(edits, current) {
+  const out = [];
+  for (const e of edits) {
+    const before = current[e.path] ?? '';
+    const after = e.content ?? '';
+    if (e.content === null || (before && !after.trim())) out.push({ path: e.path, kind: 'delete_file', what: `delete ${e.path}` });
+    else if (DATA_LOSS.test(after) && !DATA_LOSS.test(before)) out.push({ path: e.path, kind: 'delete_data', what: `delete data (${after.match(DATA_LOSS)[0].toLowerCase()}) in ${e.path}` });
+    else if (/(^|\/)(deploy|\.github\/workflows)|vercel\.json$/i.test(e.path)) out.push({ path: e.path, kind: 'deploy', what: `change deployment (${e.path})` });
+    else if (MESSAGING.test(after) && !MESSAGING.test(before)) out.push({ path: e.path, kind: 'message_users', what: `message real users (${e.path})` });
+  }
+  return out;
+}
+
+// POST /api/team/task/action-decision { projectId, taskId, choice: approve|reject }
+export async function actionDecision(ctx) {
+  const { actor } = await devActor(ctx);
+  const t = await mustGet(ctx.body.taskId, actor);
+  if (t.status !== 'needs_action_approval' || !t.pendingAction) throw new HttpError(409, 'Nothing waiting for your OK');
+  const { edits, result, followUp, reasons } = t.pendingAction;
+  const approve = ctx.body.choice === 'approve';
+  await taskLog(t, approve ? 'developer.action_approved' : 'developer.action_rejected',
+    `${actor.name} ${approve ? 'approved' : 'did not allow'}: ${reasons.map((r) => r.what).join('; ')}`, { reasons });
+  if (!approve) {
+    say(t, 'developer', 'Do not do that.');
+    say(t, 'agent', 'OK, nothing was written. Change the task or ask for something else.');
+    return saveTask(t, { status: t.changedFiles?.length ? 'done' : 'awaiting_plan_approval', pendingAction: null });
+  }
+  say(t, 'developer', 'Approved.');
+  return step(t, () => finishWork(t, edits, result, followUp));
+}
+
+// ---------------------------------------------------------------- end-of-task summary
+/**
+ * The structured summary of a finished task. The agent's words describe it;
+ * the checkable facts come from reality: which files changed (the diff), which
+ * are new, what was planned but not changed, and what was blocked (and so has
+ * to come from another department).
+ */
+async function draftSummary(t, result, files, diffText) {
+  const added = [...diffText.matchAll(/^diff --git a\/(\S+) b\/\S+\nnew file mode/gm)].map((m) => m[1]);
+  const blockedFiles = [...new Set((t.blocked ?? []).flatMap((b) => b.files))];
+  const planned = t.plan?.files ?? [];
+  const departments = await listDepartments(t.projectId);
+  const others = new Map();
+  for (const b of t.blocked ?? []) {
+    const owner = b.owner ?? departments.find((d) => d.id !== t.department && b.files.every((f) => inArea(d, f)))?.id;
+    if (!owner || b.heldBy) continue;
+    const step = (t.plan?.steps ?? []).find((x) => b.files.some((f) => x.includes(f)));
+    others.set(owner, { department: owner, need: step ?? `Change ${b.files.join(', ')} for "${t.text}".`, files: b.files, send: true });
+  }
+  return {
+    task: t.text,
+    status: blockedFiles.length ? 'done, with parts that need another department' : 'done',
+    whatChanged: result.summary,
+    changed: files,
+    plannedButNotChanged: planned.filter((f) => !files.includes(f) && !blockedFiles.includes(f)),
+    dependsOn: added.map((f) => `${f} is new`),
+    decisions: t.plan?.understanding ? [{ decision: t.plan.understanding, why: result.why }] : [],
+    open: [
+      ...blockedFiles.map((f) => `${f} was not changed (outside this department or claimed by another agent)`),
+      ...planned.filter((f) => !files.includes(f) && !blockedFiles.includes(f)).map((f) => `${f} was planned but not changed`),
+    ],
+    forOtherDepartments: [...others.values()],
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+function renderSummary(sm) {
+  const lines = [sm.whatChanged];
+  if (sm.changed?.length) lines.push(`Files: ${sm.changed.join(', ')}.`);
+  if (sm.dependsOn?.length) lines.push(`Others can now rely on: ${sm.dependsOn.join('; ')}.`);
+  if (sm.decisions?.length) lines.push(`Decisions: ${sm.decisions.map((d) => `${d.decision}${d.why ? ` (why: ${d.why})` : ''}`).join(' ')}`);
+  if (sm.open?.length) lines.push(`Still open: ${sm.open.join('; ')}.`);
+  if (sm.forOtherDepartments?.length) lines.push(`Needs from other departments: ${sm.forOtherDepartments.map((o) => `${o.department}: ${o.need}`).join('; ')}`);
+  return lines.filter(Boolean).join('\n');
 }
 
 // ---------------------------------------------------------------- endpoints
@@ -260,6 +455,14 @@ export async function planDecision(ctx) {
   if (edited) t.plan = plan;
   say(t, 'developer', edited ? 'Confirmed my edited plan.' : 'Plan confirmed.');
   await taskLog(t, 'developer.plan_choice', `${actor.name} ${edited ? 'edited and confirmed' : 'confirmed'} the plan`, { plan: t.plan, edited });
+  // Claim the planned files in our area that nobody else holds.
+  const department = await getDepartment(t.projectId, t.department);
+  const held = await claimHolders(t);
+  t.claims = [...new Set([...(t.claims ?? []), ...(t.plan.files ?? []).filter((f) => inArea(department, f) && !held.has(f))])];
+  const taken = (t.plan.files ?? []).filter((f) => held.has(f));
+  if (taken.length) {
+    say(t, 'agent', `${taken.map((f) => `${f} is being changed by ${held.get(f).name}'s agent ("${held.get(f).task}")`).join('; ')}. I will not touch ${taken.length === 1 ? 'it' : 'them'}: wait for that work, change the plan, or ask your manager.`);
+  }
   return step(t, () => workStep(t));
 }
 
@@ -413,6 +616,7 @@ export async function contextDecision(ctx) {
   });
   if (choice === 'cancel') return cancelTask(t, 'Cancelled after the context changed.');
   if (choice === 'continue') {
+    t.acknowledged = { ...(t.acknowledged ?? {}), ...Object.fromEntries(t.contextAlert.changes.map((c) => [c.sectionId, c.toVersion])) };
     say(t, 'developer', 'Continue as is.');
     say(t, 'agent', 'OK. Your work stays built on the old context; the submission will show it as Outdated.');
     return saveTask(t, { status: t.resumeStatus ?? 'done', resumeStatus: null });
@@ -492,3 +696,90 @@ export async function diff(ctx) {
 }
 
 export { listPeople };
+
+// GET /api/team/workspace/status?projectId
+// Everything the developer page shows around the agent: what it may change and
+// what it was blocked from, its suggestions (applied / waiting / decided, with
+// reasons), the conflicts it caused and how they were resolved, and a timeline.
+export async function status(ctx) {
+  const { actor, projectId } = await devActor(ctx);
+  const department = await getDepartment(projectId, actor.department);
+  const [mine, myTasks, byMe] = await Promise.all([
+    suggestions.list(projectId, { suggested_by: actor.id }, 200),
+    devTasks.list(projectId, { user_id: actor.id }, 50),
+    q(db.from('activity_log').select('*').eq('project_id', projectId).eq('actor_id', actor.id).order('id', { ascending: false }).limit(80)),
+  ]);
+  const taskIds = myTasks.map((t) => t.id);
+  const aboutMyTasks = taskIds.length
+    ? await q(db.from('activity_log').select('*').eq('project_id', projectId).in('task_id', taskIds).order('id', { ascending: false }).limit(120))
+    : [];
+  const mySuggestionIds = mine.map((s) => s.id);
+  const aboutMySuggestions = mySuggestionIds.length
+    ? await q(db.from('activity_log').select('*').eq('project_id', projectId).in('suggestion_id', mySuggestionIds).order('id', { ascending: false }).limit(120))
+    : [];
+  const seen = new Set();
+  const timeline = [...byMe, ...aboutMyTasks, ...aboutMySuggestions]
+    .filter((e) => (seen.has(e.id) ? false : seen.add(e.id)) && e.type !== 'notification.sent')
+    .sort((a, b) => b.id - a.id).slice(0, 60).map(toEvent);
+  const brief = (s) => ({
+    id: s.id, status: s.status, label: s.label, scope: s.scope, why: s.why, createdAt: s.createdAt, decidedAt: s.decidedAt,
+    taskId: s.taskId, reasons: s.reasons ?? [], ruleHits: s.ruleHits ?? [], decision: s.decision, managerNote: s.managerNote ?? null,
+    changes: s.changes.map((c) => ({ op: c.op, kind: c.kind, title: c.title, content: c.content })),
+  });
+  return {
+    area: {
+      department: department ? { id: department.id, name: department.name } : null,
+      files: department?.paths?.length ? department.paths : ['(the whole project)'],
+      context: department ? [`${department.name} progress: added directly when in line with the plan`, `${department.name} plan: suggestions, the manager decides`, 'Central context: suggestions, your manager looks first, then the founder'] : [],
+    },
+    blocked: timeline.filter((e) => e.type === 'permission.blocked'),
+    suggestions: mine.map(brief),
+    conflicts: mine.filter((s) => s.label === 'conflict').map(brief),
+    timeline,
+  };
+}
+
+// POST /api/team/task/share { projectId, taskId, summary }
+// The developer reviewed and edited the summary; it goes to the department
+// progress through the change router. Files are re-checked against the diff,
+// and "needs from other departments" marked send become requests.
+export async function share(ctx) {
+  const { actor, projectId } = await devActor(ctx);
+  const t = await mustGet(ctx.body.taskId, actor);
+  if (!['done', 'submitted', 'approved', 'sent_back'].includes(t.status)) throw new HttpError(409, 'Share when the agent has finished');
+  if (t.shared?.suggestionId) throw new HttpError(409, 'Already shared');
+  const edited = ctx.body.summary ?? t.summaryDraft;
+  if (!String(edited?.whatChanged ?? '').trim()) throw new HttpError(400, 'Say what changed');
+  const { files } = await workspaceDiff(projectId, actor.id);
+  const facts = t.summaryDraft ?? {};
+  // Checkable facts are never taken from the edit: files come from the diff.
+  const summary = { ...edited, changed: files, plannedButNotChanged: facts.plannedButNotChanged ?? [], checkedAt: new Date().toISOString() };
+  const suggestion = await createSuggestion(projectId, actor, {
+    scope: actor.department, taskId: t.id, files, basedOn: t.builtOn?.sections, why: `Finished: ${t.text}`, source: 'agent',
+    changes: [{ op: 'add', kind: 'progress', title: t.text.slice(0, 120), content: renderSummary(summary) }],
+  });
+  const requests = [];
+  for (const o of (summary.forOtherDepartments ?? []).filter((x) => x.send)) {
+    requests.push(await createRequest(projectId, actor, { toDepartment: o.department, title: String(o.need).slice(0, 120), body: `For "${t.text}": ${o.need}${o.files?.length ? ` (files: ${o.files.join(', ')})` : ''}`.slice(0, 600), fromTaskId: t.id }));
+  }
+  t.shared = { suggestionId: suggestion.id, summary, requests: requests.map((r) => r.id), at: new Date().toISOString() };
+  await saveTask(t);
+  return { suggestion: { id: suggestion.id, status: suggestion.status, label: suggestion.label, reasons: suggestion.reasons }, requests, summary };
+}
+
+// POST /api/team/task/undo-edits { projectId, taskId }
+// A developer can undo their own agent's work that has not been shared or
+// submitted yet: the changed files go back to how they were in their copy's base.
+export async function undoEdits(ctx) {
+  const { actor, projectId } = await devActor(ctx);
+  const t = await mustGet(ctx.body.taskId, actor);
+  if (t.shared || ['submitted', 'approved'].includes(t.status)) throw new HttpError(409, 'Already shared or submitted: ask your manager to revert it');
+  const { files } = await workspaceDiff(projectId, actor.id);
+  if (!files.length) throw new HttpError(409, 'Nothing to undo');
+  const base = await readAll(projectId, BASE(actor.id));
+  await writeEdits(projectId, actor.id, files.map((f) => ({ path: f, content: base[f] ?? null })));
+  say(t, 'developer', `Undid my agent's changes to ${files.join(', ')}.`);
+  await saveTask(t, { changedFiles: [], summaryDraft: null, claims: [], status: t.plan ? 'awaiting_plan_approval' : t.status });
+  await taskLog(t, 'developer.undo_edits', `${actor.name} undid their agent's unshared changes to ${files.join(', ')}`, { files });
+  return t;
+}

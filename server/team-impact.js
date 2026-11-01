@@ -3,11 +3,12 @@
 // the manager confirms, and only then is the context changed and people told.
 import { HttpError } from '../api/_lib/errors.js';
 import { contextProposals, workSubmissions } from '../api/_lib/records.js';
-import { logEvent, notifyMany } from '../api/_lib/activity.js';
+import { logEvent } from '../api/_lib/activity.js';
 import { getDepartment, listDepartments, listPeople, requireManagerOf, teamActor } from '../api/_lib/team.js';
-import { changeSection, listSections, mentions, scopeLabel } from '../api/_lib/context.js';
+import { listSections, mentions, scopeLabel } from '../api/_lib/context.js';
 import { getTeamAgent } from '../api/_lib/team-agent/index.js';
-import { activeTask, raiseContextAlert } from './team-workspace.js';
+import { activeTask } from './team-workspace.js';
+import { routeEdits } from './team-suggestions.js';
 
 const label = (s) => `${scopeLabel(s.scope)} › ${s.title}`;
 const lower = (s) => s.charAt(0).toLowerCase() + s.slice(1);
@@ -204,40 +205,17 @@ export async function confirm(ctx) {
     data: { proposalId: p.id, ...impact, editedByManager, sourceDepartment: p.department, summary: p.summary },
   });
 
-  // Central first; then departments pick it up from the central change.
-  const centralIds = included.filter((c) => c.level === 'central').map((c) => c.sectionId);
-  const applied = [];
-  const bumpedScopes = new Set();
-  for (const c of [...included.filter((x) => x.level === 'central'), ...included.filter((x) => x.level !== 'central')]) {
-    const r = await changeSection(projectId, {
-      sectionId: c.sectionId, content: c.newContent, by: actor.id, guardrails: c.guardrails, bumpedScopes,
-      why: c.level === 'other' ? `${c.why} (follows the Central change)` : c.why,
-      cause: { submissionId: sub.id, proposalId: p.id, viaCentral: c.level === 'other' && centralIds.length ? centralIds.join(',') : undefined },
-    });
-    applied.push({ change: c, fromVersion: r.fromVersion, toVersion: r.toVersion });
-  }
-  Object.assign(p, { status: 'applied', changes, impact, appliedAt: new Date().toISOString() });
+  // Through the router: the manager's own department changes apply now; central and
+  // other departments' changes become one suggestion for the founder.
+  const routed = await routeEdits(projectId, actor, included.map((c) => ({
+    op: 'update', itemId: c.sectionId, content: c.newContent, guardrails: c.guardrails,
+    why: c.level === 'other' ? `${c.why} (follows the Central change)` : c.why,
+  })), { why: p.summary, submissionId: sub.id, obsoleteTerms: impact.obsoleteTerms });
+  Object.assign(p, {
+    status: 'applied', changes, impact, appliedAt: new Date().toISOString(),
+    suggestions: routed.map(({ id, status, label, scope }) => ({ id, status, label, scope })),
+  });
   await contextProposals.put(p);
-
-  // Mid-task alerts for active work that depends on a changed section.
-  const alertChanges = applied.map((a) => ({ sectionId: a.change.sectionId, title: a.change.title, scope: a.change.scope, fromVersion: a.fromVersion, toVersion: a.toVersion, why: a.change.why }));
-  for (const n of impact.notify.filter((x) => x.affectsActiveWork)) {
-    await raiseContextAlert(projectId, n.userId, alertChanges, p.summary, impact.obsoleteTerms);
-  }
-
-  // Everyone else on the list gets a plain notification.
-  const changedList = applied.map((a) => `${label(a.change)} v${a.fromVersion} → v${a.toVersion}`).join('\n');
-  const [people, departments] = await Promise.all([listPeople(projectId), listDepartments(projectId)]);
-  const source = departments.find((d) => d.id === p.department)?.name ?? p.department;
-  for (const n of impact.notify.filter((x) => !x.affectsActiveWork)) {
-    const u = people.find((x) => x.id === n.userId);
-    const note = u && impact.deptNotes[u.department];
-    await notifyMany(projectId, [n.userId], {
-      kind: 'context_change',
-      title: u?.department === p.department ? `${source} context updated` : `Context change from ${source}`,
-      body: `${p.summary}\n${changedList}\n${n.reason}${note && u.isManager ? `\nFor ${departments.find((d) => d.id === u.department)?.name}: ${note}` : ''}`,
-    }, { actorId: actor.id, department: p.department, submissionId: sub.id });
-  }
   return p;
 }
 

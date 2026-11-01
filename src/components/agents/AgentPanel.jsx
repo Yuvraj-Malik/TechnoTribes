@@ -6,11 +6,11 @@ import { useTeam } from '../../context/TeamContext';
 import { AGENT_STEPS, scopeName } from '../../constants/statuses';
 import { timeAgo } from '../../utils/time';
 import { Badge, Button, Card, PanelTitle, SimulatedTag, cx, textareaClass } from '../common/ui';
+import DiffViewer from '../reviews/DiffViewer';
 
 const SUGGESTIONS = {
-  frontend: ['Build the checkout page with a card payment form', 'Add a back to menu link on checkout'],
-  backend: ['Add an order status endpoint', 'Add a refunds table to the schema'],
-  payments: ['Switch from card payments to UPI only', 'Shorten the refund window to 3 minutes'],
+  frontend: ['Build the checkout page with a card payment form', 'Build the order tracking page', 'Add a back to menu link on checkout'],
+  backend: ['Add an order status endpoint', 'Switch from card payments to UPI only'],
 };
 /** Tasks your manager assigned to you: start one and your agent takes it from there. */
 function AssignedTasks({ act, pending }) {
@@ -43,7 +43,7 @@ function AssignedTasks({ act, pending }) {
   );
 }
 
-const WAITING = ['needs_conflict_decision', 'awaiting_plan_approval', 'needs_context_decision'];
+const WAITING = ['needs_conflict_decision', 'awaiting_plan_approval', 'needs_context_decision', 'needs_action_approval'];
 
 function Stepper({ task, pending }) {
   const idx = task ? AGENT_STEPS.findIndex((s) => s.statuses.includes(task.status)) : -1;
@@ -135,8 +135,20 @@ function PlanCard({ task, act }) {
             {plan.steps.map((s, i) => <li key={i}>{s}</li>)}
           </ol>
           <div className="mb-3 flex flex-wrap gap-1">
-            {plan.files.map((f) => <span key={f} className="rounded bg-surface px-1.5 py-0.5 font-mono text-[11px] text-dim ring-1 ring-line">{f}</span>)}
+            {plan.files.map((f) => (
+              <span key={f} className={cx('rounded px-1.5 py-0.5 font-mono text-[11px] ring-1',
+                plan.outsideArea?.includes(f) ? 'bg-err/10 text-err ring-err/40 line-through' : 'bg-surface text-dim ring-line')}
+              >
+                {f}
+              </span>
+            ))}
           </div>
+          {plan.outsideArea?.length > 0 && (
+            <p className="m-0 mb-3 rounded-lg bg-err/10 p-2 text-xs text-err">
+              {plan.outsideArea.join(', ')} {plan.outsideArea.length === 1 ? 'is' : 'are'} outside your department's area: your agent will be blocked from changing {plan.outsideArea.length === 1 ? 'it' : 'them'}.
+              Edit the plan, or ask that department with a request.
+            </p>
+          )}
           <div className="flex gap-2">
             <Button size="sm" onClick={() => confirm()}>Confirm plan</Button>
             <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>Edit</Button>
@@ -187,6 +199,23 @@ function ContextAlertCard({ task, act }) {
         </div>
       )}
       <div className="mt-2 text-[11px] text-dim">Noticed {timeAgo(alert.createdAt)} · your choice is logged</div>
+    </Card>
+  );
+}
+
+/** The agent will not delete, deploy or message real users on its own: it shows what would happen and asks. */
+function ActionApprovalCard({ task, act }) {
+  const p = task.pendingAction;
+  return (
+    <Card tone="red" className="space-y-2">
+      <div className="font-semibold text-err">Your OK is needed: this cannot be undone</div>
+      <ul className="m-0 list-disc space-y-0.5 pl-5 text-sm text-ink">{p.reasons.map((r, i) => <li key={i}>Your agent wants to {r.what}.</li>)}</ul>
+      <p className="m-0 text-xs text-dim">Nothing has been written yet. This is exactly what would change:</p>
+      <div className="max-h-64 overflow-auto"><DiffViewer diff={p.diff} /></div>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="danger" onClick={() => act('task/action-decision', { taskId: task.id, choice: 'approve' })}>Yes, do it</Button>
+        <Button size="sm" variant="secondary" onClick={() => act('task/action-decision', { taskId: task.id, choice: 'reject' })}>No, don't</Button>
+      </div>
     </Card>
   );
 }
@@ -349,6 +378,7 @@ export default function AgentPanel({ task, onChanged }) {
           {!pending && task.status === 'needs_conflict_decision' && <ConflictCard task={task} act={act} />}
           {!pending && task.status === 'awaiting_plan_approval' && task.plan && <PlanCard key={task.updatedAt} task={task} act={act} />}
           {!pending && task.status === 'needs_context_decision' && task.contextAlert && <ContextAlertCard key={task.contextAlert.id} task={task} act={act} />}
+          {!pending && task.status === 'needs_action_approval' && task.pendingAction && <ActionApprovalCard task={task} act={act} />}
           {!pending && task.status === 'sent_back' && <ReworkCard task={task} act={act} />}
           {task.status === 'submitted' && <Card className="!p-3 text-sm text-dim">Waiting for your manager's review. You can start another task meanwhile.</Card>}
           {task.status === 'failed' && (

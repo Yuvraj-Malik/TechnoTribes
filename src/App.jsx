@@ -15,6 +15,7 @@ import ProjectPage from './pages/projects/ProjectPage';
 import TeamLayout, { TeamHome } from './pages/projects/TeamLayout';
 import DeveloperWorkspace from './pages/worker/DeveloperWorkspace';
 import ManagerReview from './pages/admin/ManagerReview';
+import ApprovalQueue from './pages/admin/ApprovalQueue';
 import ProjectStory from './pages/projects/ProjectStory';
 import TeamSetup from './pages/owner/TeamSetup';
 import TasksPage from './pages/projects/TasksPage';
@@ -54,6 +55,7 @@ export default function App() {
               <Route index element={<TeamHome />} />
               <Route path="workspace" element={<DeveloperWorkspace />} />
               <Route path="review" element={<ManagerReview />} />
+              <Route path="approvals" element={<ApprovalQueue />} />
               <Route path="story" element={<ProjectStory />} />
               <Route path="setup" element={<TeamSetup />} />
               <Route path="tasks" element={<TasksPage />} />

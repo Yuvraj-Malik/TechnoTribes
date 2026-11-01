@@ -18,7 +18,8 @@ npm run db:push       # creates all tables, triggers and access rules
 - `001_init.sql`: 19 tables, the profile-on-signup trigger, the permanent Moderator log
 - `002_rls.sql`: row-level security and Realtime
 - `003_project_code.sql`, `004_teams_context.sql`, `005_unify.sql`: project IDs and the team workspace
-- `006_owner_tools.sql`: job titles and messages to admins
+- `006_coordination.sql` to `009_safety.sql`: suggestions, drafts, requests and the safety net
+- `010_owner_tools.sql`: job titles and messages to admins
 
 ### 2. Turn on Google sign-in
 1. **Google Cloud Console** → APIs & Services → **OAuth consent screen**: set it up (External, app name, your email).

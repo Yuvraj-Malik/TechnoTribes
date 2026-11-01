@@ -7,10 +7,12 @@ import { mentions, relevantSections } from '../context.js';
 const has = (text, ...words) => mentions(text, words).length === words.length;
 
 function scenarioOf(text, departmentId) {
+  if (departmentId === 'frontend' && has(text, 'tracking')) return 'tracking_page';
   if (departmentId === 'frontend' && has(text, 'checkout') && has(text, 'upi')) return 'checkout_upi';
   if (departmentId === 'frontend' && has(text, 'checkout')) return 'checkout_card';
+  if (departmentId === 'backend' && has(text, 'upi')) return 'payments_upi';
+  if (departmentId === 'backend' && mentions(text, ['remove', 'drop', 'delete']).length && has(text, 'table')) return 'drop_table';
   if (departmentId === 'backend' && has(text, 'status') && mentions(text, ['endpoint', 'api', 'route']).length) return 'order_status';
-  if (departmentId === 'payments' && has(text, 'upi')) return 'payments_upi';
   return 'generic';
 }
 
@@ -157,6 +159,50 @@ function withFormCss(css) {
   return css.includes('/* Forms (checkout) */') ? css : css.trimEnd() + '\n' + FORM_CSS;
 }
 
+const TRACKING_HTML = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CampusEats · Your order</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="index.html">CampusEats</a>
+    <nav><a href="index.html">Menu</a></nav>
+  </header>
+  <main class="container">
+    <h1>Your order</h1>
+    <ol id="steps" class="list">
+      <li data-step="placed">Placed</li>
+      <li data-step="preparing">Preparing</li>
+      <li data-step="ready">Ready to collect</li>
+      <li data-step="collected">Collected</li>
+    </ol>
+    <p class="muted">This page updates every 10 seconds.</p>
+  </main>
+  <script src="js/orders.js"></script>
+</body>
+</html>
+`;
+
+const TRACKING_JS = `// Order tracking: polls the order status every 10 seconds.
+const orderId = new URLSearchParams(location.search).get('id');
+
+async function refresh() {
+  const res = await fetch(\`/api/orders/\${orderId}/status\`);
+  if (!res.ok) return;
+  const { status } = await res.json();
+  document.querySelectorAll('#steps li').forEach((li) => {
+    li.classList.toggle('pill', li.dataset.step === status);
+  });
+}
+
+refresh();
+setInterval(refresh, 10000);
+`;
+
 const STATUS_ROUTE = `
 // GET /api/orders/:id/status -> { orderId, status, updatedAt }
 // Lightweight endpoint for the tracking page, which polls every 10 seconds.
@@ -256,6 +302,22 @@ export const mockAgent = {
           ],
           files: ['web/checkout.html', 'web/js/checkout.js', 'web/css/styles.css'],
         };
+      case 'drop_table':
+        return {
+          understanding: 'Remove the payments table: a migration that drops it, and the schema without it.',
+          steps: ['Add server/db/migrations/002_drop_payments.sql that drops the payments table.', 'Remove the payments table from server/db/schema.sql.'],
+          files: ['server/db/migrations/002_drop_payments.sql', 'server/db/schema.sql'],
+        };
+      case 'tracking_page':
+        return {
+          understanding: 'Build the order tracking page: a 4-step progress list that polls the order status every 10 seconds.',
+          steps: [
+            'Add web/orders.html with the 4 steps (placed, preparing, ready, collected).',
+            'Add web/js/orders.js: poll GET /api/orders/:id/status every 10 seconds and highlight the current step.',
+            'Add the GET /api/orders/:id/status route to server/routes/orders.js so the page has something to poll.',
+          ],
+          files: ['web/orders.html', 'web/js/orders.js', 'server/routes/orders.js'],
+        };
       case 'order_status':
         return {
           understanding: 'Add GET /api/orders/:id/status so the tracking page can poll the order status cheaply.',
@@ -312,6 +374,30 @@ export const mockAgent = {
           summary: 'Checkout now takes UPI only: a UPI ID field with a format check and a big "Pay ₹total with UPI" button. After paying, students see "Approve the payment request in your UPI app". All card fields are gone.',
           why: 'Payment method changed to UPI only (Central › Payment method v2). This replaces the card form so checkout matches the new payment method and the updated Payment API contract.',
         };
+      case 'drop_table': {
+        const schema = file(input.files, 'server/db/schema.sql');
+        return {
+          edits: [
+            { path: 'server/db/migrations/002_drop_payments.sql', content: '-- Payments move to the gateway; we keep no payment rows.\ndrop table payments;\n' },
+            { path: 'server/db/schema.sql', content: schema.replace(/\ncreate table payments \([\s\S]*?\);\n?/, '\n') },
+          ],
+          summary: 'Dropped the payments table (migration 002) and removed it from the schema.',
+          why: 'Payment state lives in the gateway; the table duplicates it.',
+        };
+      }
+      case 'tracking_page': {
+        const orders = file(input.files, 'server/routes/orders.js');
+        return {
+          edits: [
+            { path: 'web/orders.html', content: TRACKING_HTML },
+            { path: 'web/js/orders.js', content: TRACKING_JS },
+            // Outside Frontend's area: the platform blocks this one.
+            { path: 'server/routes/orders.js', content: orders.replace('\nmodule.exports = router;', `${STATUS_ROUTE}\nmodule.exports = router;`) },
+          ],
+          summary: 'Added the order tracking page (web/orders.html): four steps from placed to collected, refreshed every 10 seconds.',
+          why: 'Central › Version 1 is done when (live order tracking) and Frontend › Order tracking page.',
+        };
+      }
       case 'order_status': {
         const orders = file(input.files, 'server/routes/orders.js');
         return {
@@ -336,18 +422,18 @@ export const mockAgent = {
 
   async proposeContextUpdate(input) {
     const text = `${input.title} ${input.summary}`;
-    if (input.department.id === 'payments' && has(text, 'upi')) {
+    if (input.department.id === 'backend' && has(text, 'upi')) {
       return {
         summary: 'Payments moved from cards to UPI only.',
         obsoleteTerms: ['card'],
         changes: [
           {
-            sectionId: 'pay-provider',
+            sectionId: 'be-provider',
             newContent: 'CampusPay Gateway, UPI only (any UPI app: GPay, PhonePe, Paytm, BHIM) through UPI collect requests. Cards are no longer accepted. Config in config/payments.json.',
             why: 'Approved change: switch to UPI only.',
           },
           {
-            sectionId: 'pay-refunds',
+            sectionId: 'be-refunds',
             newContent: 'Students can cancel within 5 minutes or before the kitchen starts preparing. Refunds go back to the student\'s UPI account in 1 to 3 working days.',
             why: 'Refunds follow the payment method, which is now UPI.',
           },
@@ -378,6 +464,41 @@ export const mockAgent = {
         why: changeSummary,
       };
     });
+  },
+
+  /**
+   * Reviewer (simulated): flags a progress note that says it replaced or dropped
+   * something a plan item covers. It only advises: it can add a flag, never clear one.
+   */
+  async review({ change, planItems }) {
+    const text = `${change.title ?? ''} ${change.content ?? ''}`;
+    const replaces = /\b(instead of|replaced|replacing|no longer|dropped|switched)\b/i.test(text);
+    if (!replaces) return { flags: [], confident: true };
+    // The plan items it touches most (department items first): shared topic words.
+    const score = (s) => mentions(text, s.tags.filter((t) => t !== '*')).length;
+    const flags = planItems.filter((s) => score(s) > 0)
+      .sort((x, y) => score(y) - score(x) || (x.scope === 'central') - (y.scope === 'central'))
+      .slice(0, 1)
+      .map((s) => ({ itemId: s.id, explanation: `This note says something was replaced or dropped, and it touches "${s.title}" (${s.scope === 'central' ? 'Central' : s.scope}). A person should check it still follows the plan.` }));
+    return { flags, confident: true };
+  },
+
+  /** Orchestrator (simulated): one draft task per department for a goal; scripted for the tracking demo. */
+  async orchestrate({ goal, departments }) {
+    if (has(goal, 'track')) {
+      return {
+        tasks: [
+          { department: 'frontend', title: 'Build the order tracking page', description: 'web/orders.html shows the 4 order steps and refreshes every 10 seconds.', planItemIds: ['fe-tracking', 'c-core-features'] },
+          { department: 'backend', title: 'Add an order status endpoint', description: 'GET /api/orders/:id/status returns { orderId, status, updatedAt } for the tracking page.', planItemIds: ['be-order-api', 'c-order-api'] },
+        ].filter((t) => departments.some((d) => d.id === t.department)),
+      };
+    }
+    return {
+      tasks: departments.map((d) => ({
+        department: d.id, title: `${d.name}: ${goal}`.slice(0, 120),
+        description: `Do the ${d.name} part of: ${goal}. Work in ${d.paths?.join(', ') || 'your area'}.`, planItemIds: [],
+      })),
+    };
   },
 
   async adjustTask({ task, changeSummary, obsoleteTerms }) {

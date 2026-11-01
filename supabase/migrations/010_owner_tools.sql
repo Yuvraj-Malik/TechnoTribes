@@ -1,5 +1,5 @@
 -- =====================================================================
--- 006: the owner's tools: job titles, and messages to admins.
+-- 010: the owner's tools: job titles, and messages to admins.
 -- =====================================================================
 
 -- designation: the person's job title, such as "Frontend engineer".
@@ -19,5 +19,6 @@ create index if not exists messages_project_idx on public.messages (project_id, 
 
 alter table public.messages enable row level security;
 
+drop policy if exists "read your messages" on public.messages;
 create policy "read your messages" on public.messages
   for select using (sender_id = auth.uid() or auth.uid() = any (recipient_ids));

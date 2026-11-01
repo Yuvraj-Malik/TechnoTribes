@@ -692,8 +692,6 @@ begin
 end $$;
 
 -- =====================================================================
--- 006: the owner's tools: job titles, and messages to admins.
--- =====================================================================
 
 -- designation: the person's job title, such as "Frontend engineer".
 alter table public.project_members add column if not exists designation text;
@@ -714,3 +712,125 @@ alter table public.messages enable row level security;
 
 create policy "read your messages" on public.messages
   for select using (sender_id = auth.uid() or auth.uid() = any (recipient_ids));
+=======
+-- 006: coordination layer (same as supabase/migrations/006_coordination.sql)
+-- =====================================================================
+-- =====================================================================
+-- 006: coordination layer.
+-- Context items get a kind: plan (goal, must-do, must-not, decision,
+-- definition of done) or progress (progress note, checkpoint). Agents never
+-- edit context: they create suggestions, which are routed (applied directly,
+-- department manager, founder, blocked, sent back). The activity log gets two
+-- levels (central / department) and clean fields for a later visual timeline.
+-- =====================================================================
+
+-- 1. Context items: kind + extra data (checkpoint links, the reason of a decision, ...).
+alter table public.context_sections add column if not exists kind text not null default 'note'
+  check (kind in ('goal', 'must_do', 'must_not', 'decision', 'done', 'progress', 'checkpoint', 'note'));
+alter table public.context_sections add column if not exists meta jsonb not null default '{}'::jsonb;
+alter table public.context_section_versions add column if not exists kind text not null default 'note';
+alter table public.context_section_versions add column if not exists meta jsonb not null default '{}'::jsonb;
+-- A version can be "removed" without deleting anything (removal is a new version).
+alter table public.context_sections add column if not exists archived boolean not null default false;
+alter table public.context_section_versions add column if not exists archived boolean not null default false;
+
+-- 2. Suggestions: the only way an agent (or a person) changes shared context.
+create table if not exists public.context_suggestions (
+  id            uuid primary key default gen_random_uuid(),
+  project_id    uuid not null references public.projects(id) on delete cascade,
+  department    text,                 -- the suggester's department
+  scope         text not null,        -- 'central' or a department slug it would change
+  status        text not null check (status in (
+                  'applied',            -- path 1: small, in line, applied directly
+                  'pending_manager',    -- paths 2/3: department manager decides
+                  'pending_founder',    -- path 4: founder decides (incl. checkpoints)
+                  'approved', 'rejected',
+                  'workaround',         -- manager resolved a central conflict inside the department
+                  'sent_back',          -- built on changed information: agent re-checks
+                  'blocked',            -- outside the suggester's area
+                  'withdrawn', 'reverted')),
+  label         text,                 -- 'progress' | 'plan_change' | 'conflict' | 'checkpoint' | 'revert' | 'large_change'
+  suggested_by  uuid references public.profiles(id),
+  task_id       uuid references public.dev_tasks(id) on delete set null,
+  data          jsonb not null,       -- the change, rule hits, reviewer flags, versions it was based on, decision, reason
+  created_at    timestamptz not null default now(),
+  decided_at    timestamptz
+);
+create index if not exists context_suggestions_queue on public.context_suggestions (project_id, status, created_at desc);
+create index if not exists context_suggestions_task on public.context_suggestions (task_id);
+
+-- 3. Two-level log with fields for the (later) visual project timeline.
+alter table public.activity_log add column if not exists level text not null default 'department'
+  check (level in ('central', 'department'));
+alter table public.activity_log add column if not exists title text;           -- short headline
+alter table public.activity_log add column if not exists plain text;           -- plain-language summary for non-technical readers
+alter table public.activity_log add column if not exists item_id text;         -- context item it concerns
+alter table public.activity_log add column if not exists suggestion_id uuid;   -- suggestion it concerns
+alter table public.activity_log add column if not exists checkpoint_id text;   -- central checkpoint it belongs to
+alter table public.activity_log add column if not exists links jsonb not null default '[]'::jsonb; -- related entries [{type, id}]
+update public.activity_log set level = 'central' where department is null and level = 'department';
+create index if not exists activity_log_level on public.activity_log (project_id, level, id desc);
+
+alter table public.context_suggestions enable row level security;
+create policy "read suggestions" on public.context_suggestions
+  for select using (suggested_by = auth.uid() or public.has_role(project_id, array['owner','admin']));
+
+do $$
+begin
+  begin alter publication supabase_realtime add table public.context_suggestions; exception when others then null; end;
+end $$;
+
+-- =====================================================================
+-- 007: orchestrator drafts (same as supabase/migrations/007_orchestrator.sql)
+-- =====================================================================
+-- =====================================================================
+-- 007: orchestrator drafts.
+-- The orchestrator agent turns a goal (from the founder or a manager) into
+-- draft tasks per department. A draft has no assignee until the department
+-- manager assigns it to a developer.
+-- =====================================================================
+alter table public.tasks alter column assignee_id drop not null;
+alter table public.tasks add column if not exists source text not null default 'person'
+  check (source in ('person', 'orchestrator', 'request'));
+alter table public.tasks add column if not exists goal text;
+alter table public.tasks add column if not exists plan_items text[] not null default '{}';
+create index if not exists tasks_drafts on public.tasks (project_id, department) where assignee_id is null;
+
+-- =====================================================================
+-- 008: requests between departments (same as supabase/migrations/008_requests.sql)
+-- =====================================================================
+-- =====================================================================
+-- 008: requests between departments.
+-- When an agent needs something in another department's area, its developer
+-- (or manager) sends a short request. It lands as a draft task in that
+-- department; its manager assigns it (or declines with a reason); when the
+-- work is approved, the result is posted back to the requester.
+-- =====================================================================
+alter table public.tasks add column if not exists from_department text;
+alter table public.tasks add column if not exists requested_by uuid references public.profiles(id);
+alter table public.tasks add column if not exists from_task_id uuid references public.dev_tasks(id) on delete set null;
+alter table public.tasks add column if not exists result text;
+alter table public.tasks add column if not exists declined_reason text;
+create index if not exists tasks_requests on public.tasks (project_id, from_department) where source = 'request';
+
+-- =====================================================================
+-- 009: safety net (same as supabase/migrations/009_safety.sql)
+-- =====================================================================
+-- =====================================================================
+-- 009: safety net.
+-- Embedding cache for search by meaning (Voyage embeddings, compared in the
+-- API; one row per searchable text, refreshed when the text changes).
+-- =====================================================================
+create table if not exists public.search_embeddings (
+  project_id  uuid not null references public.projects(id) on delete cascade,
+  ref         text not null,             -- e.g. v:<item>:<version>, s:<suggestion>, l:<log id>
+  text_hash   text not null,
+  embedding   jsonb not null,
+  created_at  timestamptz not null default now(),
+  primary key (project_id, ref)
+);
+alter table public.search_embeddings enable row level security;
+
+-- =====================================================================
+-- 010: the owner's tools (same as supabase/migrations/010_owner_tools.sql): job titles, and messages to admins.
+-- ==============================================================

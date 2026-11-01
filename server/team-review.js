@@ -131,7 +131,7 @@ export async function decide(ctx) {
   });
   await logEvent(s.projectId, { ...base, type: 'merge.done', summary: `"${s.title}" merged into the main project`, data: { files: s.files, commitId: merge.mergedId } });
   await notifyMany(s.projectId, [s.userId], { kind: 'review', title: `Approved: ${s.title}`, body: `${m.name} approved and merged it into the main project.` }, base);
-  return { submission: s, proposal: await buildProposal(s) };
+  return { submission: s, proposal: s.kind === 'undo' ? null : await buildProposal(s) };
 }
 
 // GET /api/team/review/overview?projectId[&department]  (who is doing what + incoming central changes)

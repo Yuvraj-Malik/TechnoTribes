@@ -11,7 +11,7 @@ import { logEvent, toEvent } from '../api/_lib/activity.js';
 import { notify } from '../api/_lib/log.js';
 
 const projectIdOf = (ctx) => ctx.body?.projectId ?? ctx.query?.projectId;
-const ACTIVE = ['reading_context', 'checking_conflicts', 'needs_conflict_decision', 'planning', 'awaiting_plan_approval', 'working', 'done', 'needs_context_decision', 'sent_back', 'failed'];
+const ACTIVE = ['reading_context', 'checking_conflicts', 'needs_conflict_decision', 'planning', 'awaiting_plan_approval', 'working', 'done', 'needs_context_decision', 'needs_action_approval', 'sent_back', 'failed'];
 
 /** Latest task of every developer (the live board). Plain words for the status. */
 const STATUS_WORDS = {
