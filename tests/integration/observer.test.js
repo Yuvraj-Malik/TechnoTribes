@@ -50,7 +50,7 @@ test('nothing technical reaches the observer in the progress views', async () =>
 
 test('every person on the team has a row and the investor does not', async () => {
   const f = await feed();
-  assert.ok(f.people.length >= 8);
+  assert.equal(f.people.length, fake.tables.project_members.filter((m) => m.role !== 'observer').length);
   assert.ok(f.people.every((p) => p.title && Array.isArray(p.pieces)));
   assert.ok(!f.people.some((p) => p.name === 'Isaac'));
 });
@@ -124,6 +124,9 @@ test('the observer reads central context and documents, but not team-only contex
   assert.ok(about.docs.some((d) => d.title === 'CampusEats'), 'the README is a document');
   assert.doesNotMatch(JSON.stringify(about.rules), /guardrail|phrase|POST \/api/i);
   assert.ok(roadmap.some((w) => w.rules.length > 0), 'work lists the rules it was built on');
+  assert.ok(about.milestones.some((m) => m.title === 'Menu and cart live'), 'a confirmed checkpoint is a milestone');
+  assert.ok(about.notes.some((n) => n.title === 'Menu page built' && n.team === 'Frontend'));
+  assert.ok(about.rules.some((r) => r.label === 'Must not'));
 });
 
 test('the team-only code view stays closed to the observer', async () => {

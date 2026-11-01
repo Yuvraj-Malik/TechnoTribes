@@ -125,7 +125,39 @@ test('the about section shares central context only, in plain words', () => {
   assert.equal(about.teamRules, 2, 'the department rule and the technical one');
   assert.doesNotMatch(JSON.stringify(about), /Department only text|Secret guardrail|POST \/api/);
   assert.equal(projectAbout({ description: 'From the project' }).brief, 'From the project');
-  assert.deepEqual(projectAbout({}), { brief: null, rules: [], teamRules: 0, docs: [] });
+  assert.deepEqual(projectAbout({}), { brief: null, rules: [], teamRules: 0, milestones: [], notes: [], docs: [] });
+});
+
+test('context kinds become the plan, milestones and progress notes', () => {
+  const item = (id, kind, scope, title, content, at) => ({ id, kind, scope, title, content, version: 1, updatedBy: 'tara', updatedAt: ago(at), guardrails: [] });
+  const about = projectAbout({
+    departments, nameOf,
+    sections: [
+      item('goal', 'goal', 'central', 'Product goal', 'Fast ordering.', 9),
+      item('rule', 'must_not', 'central', 'Never handle card numbers', 'Use the gateway.', 9),
+      item('old', 'checkpoint', 'central', 'Menu live', 'Students can browse.', 8),
+      item('new', 'checkpoint', 'central', 'Cart live', 'Students can order.', 2),
+      item('note', 'progress', 'content', 'FAQ drafted', 'Secret detail in web/faq.html', 1),
+      item('team', 'decision', 'content', 'Copy rules', 'Team only.', 9),
+    ],
+  });
+  assert.equal(about.brief, 'Fast ordering.', 'the first goal stands in for a brief');
+  assert.deepEqual(about.rules.map((r) => [r.label, r.title]), [['Must not', 'Never handle card numbers']]);
+  assert.deepEqual(about.milestones.map((m) => m.title), ['Cart live', 'Menu live']);
+  assert.deepEqual(about.notes.map(({ title, team, who }) => [title, team, who]), [['FAQ drafted', 'Content', 'Tara']]);
+  assert.equal(about.teamRules, 1);
+  assert.doesNotMatch(JSON.stringify(about.notes), /Secret detail/);
+});
+
+test('a declined request is not finished work, and drafts wait to be assigned', () => {
+  const tasks = [
+    { id: 'no', title: 'Declined', assignee_id: null, status: 'done', declined_reason: 'Not now', created_at: ago(2) },
+    { id: 'draft', title: 'Draft from the planner', assignee_id: null, status: 'open', source: 'orchestrator', created_at: ago(1) },
+  ];
+  const all = buildWork({ tasks, people, nameOf });
+  assert.deepEqual(all.map((w) => [w.id, w.stage, w.who, w.userId]), [['draft', 'upcoming', 'Not assigned yet', null]]);
+  assert.equal(plainUpdate({ work: all }).next[0].words, 'Waiting to be assigned.');
+  assert.equal(productMap({ work: all }).planned[0].who, null);
 });
 
 test('Markdown files in the project become readable documents', () => {
@@ -168,7 +200,7 @@ test('each piece says where it is and whose turn it is, in plain words', () => {
 });
 
 test('every agent status has plain words, and the agent working needs nobody', () => {
-  const statuses = { reading_context: 0, checking_conflicts: 0, planning: 0, needs_conflict_decision: 0, awaiting_plan_approval: 0, working: 1, needs_context_decision: 1, failed: 1, sent_back: 1, done: 2, submitted: 3 };
+  const statuses = { needs_action_approval: 1, reading_context: 0, checking_conflicts: 0, planning: 0, needs_conflict_decision: 0, awaiting_plan_approval: 0, working: 1, needs_context_decision: 1, failed: 1, sent_back: 1, done: 2, submitted: 3 };
   for (const [status, step] of Object.entries(statuses)) {
     const [w] = buildWork({ devs: [dev('x', 'kabir', status)], people, departments, nameOf });
     assert.equal(w.step, step, status);

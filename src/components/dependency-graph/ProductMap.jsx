@@ -37,7 +37,7 @@ function Planned({ item }) {
   return (
     <div className="flex min-h-24 min-w-0 flex-col rounded-[10px] border-[1.5px] border-dashed border-panel-dim/70 p-3 text-[13px] leading-snug text-panel-dim">
       <span className="text-[15px] font-semibold text-panel-ink">{item.title}</span>
-      <span className="mt-0.5">Not started · {item.who} is next</span>
+      <span className="mt-0.5">Not started{item.who ? ` · ${item.who} is next` : ''}</span>
     </div>
   );
 }

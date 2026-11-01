@@ -69,7 +69,7 @@ export default function ProjectLine({ line }) {
         ))}
         {stops.map((s) => <StopLabel key={s.version} x={s.x} y={mainY + 38} lines={s.lines} sub={`Version ${s.version} · ${firstName(s.who)}`} />)}
         {earlier > 0 && <text x={0} y={mainY - 26} fontSize="13" fill="var(--dim)">{earlier} earlier {earlier === 1 ? 'version' : 'versions'}</text>}
-        {planned && <StopLabel x={planned.x} y={mainY + 38} lines={planned.lines} sub={`Not started · ${firstName(planned.who)}${planned.more ? ` · ${planned.more} more planned` : ''}`} />}
+        {planned && <StopLabel x={planned.x} y={mainY + 38} lines={planned.lines} sub={['Not started', planned.userId && firstName(planned.who), planned.more && `${planned.more} more planned`].filter(Boolean).join(' · ')} />}
         {showNext && <StopLabel x={1124} y={mainY + 38} lines={['Next update']} sub="Live once approved" anchor="end" />}
         {hiddenTracks > 0 && <text x="530" y={mainY - 26} fontSize="13" fill="var(--dim)">{hiddenTracks} more being finished</text>}
       </svg>

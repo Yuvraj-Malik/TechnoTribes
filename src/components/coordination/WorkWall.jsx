@@ -45,7 +45,7 @@ function Brick({ piece, named, picked, onPick, style }) {
       )}
     >
       {named && <span className="line-clamp-4 min-w-0">{piece.title}</span>}
-      {named && <Avatar person={{ id: piece.userId ?? '', name: piece.who }} size={22} />}
+      {named && piece.userId && <Avatar person={{ id: piece.userId, name: piece.who }} size={22} />}
     </button>
   );
 }

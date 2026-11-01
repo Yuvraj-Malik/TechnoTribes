@@ -3,7 +3,7 @@
 //   people        who is doing what, and what each person does next
 //   update        the last day in plain sentences
 //   line, map     how the work fits together, with no file paths or branch names
-//   about         what the project is, from its central context and Markdown files
+//   about         what the project is and its milestones, from context and Markdown files
 //   changes       approved product changes and requirement changes, each with what and why
 //   myRequests    the observer's own requests and where each one stands
 //   currentSite   the approved (main) web files, for a live preview
@@ -33,7 +33,7 @@ export async function feed({ user, query }) {
     listPeople(projectId),
     listDepartments(projectId),
     listSections(projectId),
-    q(db.from('activity_log').select('*').eq('project_id', projectId).in('type', ['context.changed', 'context.created']).order('id', { ascending: false }).limit(40)),
+    q(db.from('activity_log').select('*').eq('project_id', projectId).in('type', ['context.changed', 'context.created', 'context.added']).order('id', { ascending: false }).limit(40)),
     q(db.from('main_commits').select('id,author_id,message,created_at').eq('project_id', projectId).order('created_at', { ascending: false })),
     workSubmissions.list(projectId, {}, 300),
     devTasks.list(projectId, {}, 300),
@@ -41,9 +41,11 @@ export async function feed({ user, query }) {
     q(db.from('observer_requests').select('*').eq('project_id', projectId).order('created_at', { ascending: false })),
     readAll(projectId, 'main'),
   ]);
+  // Progress notes are not rule changes: they appear with the milestones.
+  const ruleEvents = events.filter((e) => e.data?.kind !== 'progress');
   const names = await namesFor([...people.map((p) => p.id), ...tasks.map((t) => t.assignee_id), ...commits.map((c) => c.author_id)]);
   const nameOf = (id) => names[id] || people.find((p) => p.id === id)?.name || 'Someone';
-  const progress = summarize({ tasks, devs, submissions: subs, commits, people, departments, requests, events, files: main, sections, description: project.description, viewerId: user.id, nameOf });
+  const progress = summarize({ tasks, devs, submissions: subs, commits, people, departments, requests, events: ruleEvents, files: main, sections, description: project.description, viewerId: user.id, nameOf });
 
   // Approved changes, newest first: what changed + why (from the submission), or the merge message.
   const approved = subs.filter((s) => s.status === 'approved');
@@ -56,9 +58,9 @@ export async function feed({ user, query }) {
       id: `c-${c.id}`, kind: 'product', title: messageTitle(c.message), what: messageTitle(c.message), why: null,
       who: nameOf(c.author_id), when: c.created_at,
     })),
-    ...events.map((e) => ({
+    ...ruleEvents.map((e) => ({
       id: `e-${e.id}`, kind: 'requirement',
-      title: e.data?.title ? `${e.data.title} updated` : e.summary.replace('the central context', "the team's rules"),
+      title: e.title ?? (e.data?.title ? `${e.data.title} updated` : e.summary.replace('the central context', "the team's rules")),
       what: e.data?.title ? `The team and its AI agents now follow a new version of "${e.data.title}".` : null,
       why: e.data?.why || null, who: e.actor_id ? nameOf(e.actor_id) : 'The team', when: e.at,
     })),
@@ -104,6 +106,8 @@ export async function listRequests({ user, query }) {
   let builder = db.from('observer_requests').select('*').eq('project_id', query.projectId);
   if (me.role === 'observer') builder = builder.eq('observer_id', user.id);
   const rows = await q(builder.order('created_at', { ascending: false }));
+  // Progress notes are not rule changes: they appear with the milestones.
+  const ruleEvents = events.filter((e) => e.data?.kind !== 'progress');
   const names = await namesFor(rows.flatMap((r) => [r.observer_id, r.admin_id]));
   return { requests: rows.map((r) => ({ ...r, observerName: names[r.observer_id] || null, adminName: names[r.admin_id] || null })) };
 }

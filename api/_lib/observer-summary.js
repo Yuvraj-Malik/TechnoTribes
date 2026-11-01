@@ -5,11 +5,12 @@
 
 const STAGE = { open: 'upcoming', in_progress: 'now', in_review: 'now', done: 'done' };
 const STAGE_ORDER = { done: 0, now: 1, upcoming: 2 };
-const OPEN = ['reading_context', 'checking_conflicts', 'needs_conflict_decision', 'planning', 'awaiting_plan_approval', 'working', 'done', 'needs_context_decision', 'sent_back', 'failed'];
+const OPEN = ['reading_context', 'checking_conflicts', 'needs_conflict_decision', 'planning', 'awaiting_plan_approval', 'working', 'done', 'needs_context_decision', 'needs_action_approval', 'sent_back', 'failed'];
 const DAY_MS = 24 * 3600e3;
 const FEW = 3;
 
 const firstName = (name) => String(name || 'Someone').trim().split(/\s+/)[0];
+const UNASSIGNED = 'Not assigned yet'; // the planning agent's drafts wait here for a manager
 const clip = (text, max) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
 const filesOf = (d) => [...new Set([...(d.plan?.files ?? []), ...(d.changedFiles ?? [])])];
 
@@ -23,6 +24,7 @@ const BY_AGENT = {
   needs_conflict_decision: { step: 0, words: (me) => `${me} needs to decide about a clash with the rules.`, next: (t) => `Decide about a clash with the rules in "${t}"` },
   awaiting_plan_approval: { step: 0, words: (me) => `Plan ready. ${me} needs to OK it.`, next: (t) => `OK the plan for "${t}"` },
   needs_context_decision: { step: 1, words: (me) => `A rule changed. ${me} is deciding how to continue.`, next: (t) => `Decide how to continue "${t}" after a rule changed` },
+  needs_action_approval: { step: 1, words: (me) => `The AI agent wants to do something that cannot be undone. ${me} needs to OK it.`, next: (t) => `OK or stop a risky step in "${t}"` },
   failed: { step: 1, words: (me) => `The AI agent hit a problem. ${me} is looking at it.`, next: (t) => `Sort out the problem with "${t}"` },
   sent_back: { step: 1, words: (me) => `Sent back for changes. ${me} is reworking it.`, next: (t) => `Rework "${t}"` },
   done: { step: 2, words: (me) => `AI agent finished. ${me} is checking it.`, next: (t) => `Check "${t}" and send it for approval` },
@@ -90,14 +92,15 @@ export function buildWork({ tasks = [], devs = [], submissions = [], commits = [
     return now?.statusWords ?? (status === 'in_review' ? 'Built. Waiting for a manager to approve.' : 'Being built right now.');
   };
 
-  const assigned = tasks.map((t) => {
+  // A declined request is stored as done, but nothing was built.
+  const assigned = tasks.filter((t) => !t.declined_reason).map((t) => {
     const d = devs.find((x) => x.id === t.dev_task_id) ?? null;
     const sub = d ? latestSub(d.id) : null;
     const stage = STAGE[t.status] ?? 'upcoming';
     const now = stage === 'now' && d ? standing(d, t.title, sub, reviewerOf(d.department, departments, people)) : null;
     const version = stage === 'done' ? versionOf(sub) : null;
     return {
-      id: t.id, devTaskId: d?.id ?? null, title: t.title, details: t.description, who: nameOf(t.assignee_id), userId: t.assignee_id,
+      id: t.id, devTaskId: d?.id ?? null, title: t.title, details: t.description, who: t.assignee_id ? nameOf(t.assignee_id) : UNASSIGNED, userId: t.assignee_id ?? null,
       stage, step: now?.step ?? 0, statusWords: wordsFor(stage, version, now, t.status), waitingOn: now?.waitingOn ?? null, version,
       what: plainText(sub?.summary || d?.summary), why: plainText(sub?.why || d?.whyDraft), rules: rulesOf(d, stage),
       fromYourRequest: !!t.observer_request_id && requests.some((r) => r.id === t.observer_request_id && r.observer_id === viewerId),
@@ -202,7 +205,7 @@ export function plainUpdate({ work = [], requests = [], overlaps = [], viewerId 
       .map((w) => line(w, `${firstName(w.who)} finished it${w.fromYourRequest ? ', as you asked' : ''}.`)),
     now: work.filter((w) => w.stage === 'now').slice(0, FEW).map((w) => line(w, w.statusWords)),
     next: [
-      ...work.filter((w) => w.stage === 'upcoming').slice(0, 2).map((w) => line(w, `${firstName(w.who)} is next.`)),
+      ...work.filter((w) => w.stage === 'upcoming').slice(0, 2).map((w) => line(w, w.userId ? `${firstName(w.who)} is next.` : 'Waiting to be assigned.')),
       ...asked.slice(0, 1).map((r) => ({ id: r.id, title: 'Your request', words: `"${clip(r.message, 60)}" is waiting for a decision.` })),
     ],
     notes: overlaps.map(overlapWords),
@@ -260,7 +263,7 @@ export function productMap({ files = {}, devs = [], work = [] }) {
   return {
     parts: [...pages.map((p) => part(p, 'page')), ...shared.map((p) => part(p, 'shared'))],
     links: uses.flatMap(({ page, targets }) => targets.filter((t) => !isPage(t)).map((t) => ({ from: idOf(page), to: idOf(t) }))),
-    planned: work.filter((w) => w.stage === 'upcoming').map(({ id, title, who }) => ({ id, title, who: firstName(who) })),
+    planned: work.filter((w) => w.stage === 'upcoming').map(({ id, title, who, userId }) => ({ id, title, who: userId ? firstName(who) : null })),
     hidden: paths.length - paths.filter(isPage).length - shared.length,
   };
 }
@@ -268,6 +271,10 @@ export function productMap({ files = {}, devs = [], work = [] }) {
 const MOST_DOCS = 8;
 const DOC_CHARS = 6000;
 const TECHNICAL_TITLE = /\b(api|schema|tech|endpoints?|structure)\b/i;
+const STATUS_KINDS = ['progress', 'checkpoint'];
+const PLAN_WORD = { goal: 'Goal', must_do: 'Must do', must_not: 'Must not', decision: 'Decision', done: 'Done when' };
+const LATEST_NOTES = 8;
+const newestFirst = (a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt));
 
 /** A Markdown document as plain blocks, so the page needs no Markdown library. */
 export function mdBlocks(text) {
@@ -287,13 +294,15 @@ export function mdBlocks(text) {
 }
 
 /**
- * What the project is, from its context and documents. Context is otherwise
- * team-only, so this shares the central sections written for everyone and nothing
- * else: no technical sections, department rules, guardrails or version history.
+ * What the project is and how far it has come, from its context and documents.
+ * Context is otherwise team-only, so this shares the central plan written for
+ * everyone, the founder's milestones, and only the titles of progress notes. No
+ * technical sections, department rules, guardrails or version history.
  */
-export function projectAbout({ sections = [], files = {}, description = null, nameOf = () => 'Someone' }) {
-  const central = sections.filter((s) => s.scope === 'central');
-  const brief = central.find((s) => /brief|overview|about/i.test(s.title));
+export function projectAbout({ sections = [], files = {}, departments = [], description = null, nameOf = () => 'Someone' }) {
+  const plan = sections.filter((s) => !STATUS_KINDS.includes(s.kind));
+  const central = plan.filter((s) => s.scope === 'central');
+  const brief = central.find((s) => /brief|overview|about/i.test(s.title)) ?? central.find((s) => s.kind === 'goal');
   const shared = central.filter((s) => s !== brief && !TECHNICAL_TITLE.test(s.title));
   const docs = Object.keys(files)
     .filter((path) => /\.mdx?$/i.test(path))
@@ -307,10 +316,15 @@ export function projectAbout({ sections = [], files = {}, description = null, na
   return {
     brief: plainText(brief?.content) ?? description,
     rules: shared.map((s) => ({
-      id: s.id, title: s.title, version: s.version, text: plainText(s.content), why: s.version > 1 ? plainText(s.why) : null,
+      id: s.id, title: s.title, label: PLAN_WORD[s.kind] ?? null, version: s.version, text: plainText(s.content), why: s.version > 1 ? plainText(s.why) : null,
       who: s.updatedBy ? firstName(nameOf(s.updatedBy)) : null, when: s.updatedAt,
     })),
-    teamRules: sections.length - shared.length - (brief ? 1 : 0),
+    teamRules: plan.length - shared.length - (brief ? 1 : 0),
+    milestones: sections.filter((s) => s.kind === 'checkpoint').sort(newestFirst).map((s) => ({ id: s.id, title: s.title, text: plainText(s.content), when: s.updatedAt })),
+    notes: sections.filter((s) => s.kind === 'progress').sort(newestFirst).slice(0, LATEST_NOTES).map((s) => ({
+      id: s.id, title: s.title, team: departments.find((d) => d.id === s.scope)?.name ?? null,
+      who: s.updatedBy ? firstName(nameOf(s.updatedBy)) : null, when: s.updatedAt,
+    })),
     docs,
   };
 }
@@ -328,6 +342,6 @@ export function summarize({ tasks, devs, submissions, commits, people, departmen
     update: plainUpdate({ work, requests, overlaps, viewerId, now }),
     line: projectLine({ commits, work, overlaps, nameOf }),
     map: productMap({ files, devs, work }),
-    about: projectAbout({ sections, files, description, nameOf }),
+    about: projectAbout({ sections, files, departments, description, nameOf }),
   };
 }
