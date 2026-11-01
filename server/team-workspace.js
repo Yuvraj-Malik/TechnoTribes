@@ -703,12 +703,13 @@ export { listPeople };
 // reasons), the conflicts it caused and how they were resolved, and a timeline.
 export async function status(ctx) {
   const { actor, projectId } = await devActor(ctx);
-  const department = await getDepartment(projectId, actor.department);
   const [mine, myTasks, byMe] = await Promise.all([
     suggestions.list(projectId, { suggested_by: actor.id }, 200),
     devTasks.list(projectId, { user_id: actor.id }, 50),
     q(db.from('activity_log').select('*').eq('project_id', projectId).eq('actor_id', actor.id).order('id', { ascending: false }).limit(80)),
   ]);
+  // The owner has no department of their own: their area is their latest task's.
+  const department = await getDepartment(projectId, actor.department ?? (await activeTask(projectId, actor.id))?.department);
   const taskIds = myTasks.map((t) => t.id);
   const aboutMyTasks = taskIds.length
     ? await q(db.from('activity_log').select('*').eq('project_id', projectId).in('task_id', taskIds).order('id', { ascending: false }).limit(120))
@@ -754,13 +755,15 @@ export async function share(ctx) {
   const facts = t.summaryDraft ?? {};
   // Checkable facts are never taken from the edit: files come from the diff.
   const summary = { ...edited, changed: files, plannedButNotChanged: facts.plannedButNotChanged ?? [], checkedAt: new Date().toISOString() };
-  const suggestion = await createSuggestion(projectId, actor, {
-    scope: actor.department, taskId: t.id, files, basedOn: t.builtOn?.sections, why: `Finished: ${t.text}`, source: 'agent',
+  // The owner has no department of their own, so they share from the task's.
+  const sharer = { ...actor, department: t.department };
+  const suggestion = await createSuggestion(projectId, sharer, {
+    scope: t.department, taskId: t.id, files, basedOn: t.builtOn?.sections, why: `Finished: ${t.text}`, source: 'agent',
     changes: [{ op: 'add', kind: 'progress', title: t.text.slice(0, 120), content: renderSummary(summary) }],
   });
   const requests = [];
   for (const o of (summary.forOtherDepartments ?? []).filter((x) => x.send)) {
-    requests.push(await createRequest(projectId, actor, { toDepartment: o.department, title: String(o.need).slice(0, 120), body: `For "${t.text}": ${o.need}${o.files?.length ? ` (files: ${o.files.join(', ')})` : ''}`.slice(0, 600), fromTaskId: t.id }));
+    requests.push(await createRequest(projectId, sharer, { toDepartment: o.department, title: String(o.need).slice(0, 120), body: `For "${t.text}": ${o.need}${o.files?.length ? ` (files: ${o.files.join(', ')})` : ''}`.slice(0, 600), fromTaskId: t.id }));
   }
   t.shared = { suggestionId: suggestion.id, summary, requests: requests.map((r) => r.id), at: new Date().toISOString() };
   await saveTask(t);

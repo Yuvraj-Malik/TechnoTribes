@@ -106,6 +106,20 @@ test('the owner runs their own Builder and Critic, and a manager reviews the res
   assert.ok(after.edges.length, 'the sample app links its files together');
 });
 
+test('the owner shares finished work from the task\'s department', async () => {
+  let task = await call('POST', 'team/task/start', { body: { text: 'Add a note about opening hours', department: 'frontend' } });
+  task = await call('POST', 'team/task/plan-decision', { body: { taskId: task.id } });
+  assert.equal(task.status, 'done');
+  assert.equal((await call('GET', 'team/workspace/status')).area.department.id, 'frontend');
+
+  const summary = { whatChanged: 'Added opening hours', forOtherDepartments: [{ department: 'backend', need: 'Store the opening hours', send: true }] };
+  const shared = await call('POST', 'team/task/share', { body: { taskId: task.id, summary } });
+  const { suggestions } = await call('GET', 'team/workspace/status');
+  assert.equal(suggestions.find((s) => s.id === shared.suggestion.id).scope, 'frontend');
+  assert.equal(shared.requests[0].fromDepartment, 'frontend');
+  await call('POST', 'team/task/cancel', { body: { taskId: task.id } });
+});
+
 test('the code view is not for observers', async () => {
   const observer = fake.addUser('Olive');
   fake.tables.project_members.push({ project_id: projectId, user_id: observer.id, role: 'observer', status: 'active' });
