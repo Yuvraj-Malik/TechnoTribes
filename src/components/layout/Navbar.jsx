@@ -1,5 +1,6 @@
 // Top bar: page title on the left; theme, notifications and profile on the right.
 // Inside a project, that project's tabs (by role) sit in a row under the bar.
+import { useEffect, useRef } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import Icon from '../common/Icon';
 import Popover from '../common/Popover';
@@ -116,17 +117,24 @@ function ProfileMenu() {
 
 /** Inside a project: that project's role-specific tabs, as a row under the top bar. */
 function ProjectTabs({ items }) {
+  const { pathname } = useLocation();
+  const row = useRef(null);
+  // On a phone the row scrolls, so keep the page you are on in view.
+  useEffect(() => {
+    row.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [pathname]);
+
   return (
-    <nav aria-label="Project" className="-mb-px flex gap-1 overflow-x-auto px-2 sm:px-4 lg:px-6 [scrollbar-width:none]">
+    <nav ref={row} aria-label="Project" className="-mb-px flex gap-1 overflow-x-auto px-2 sm:px-4 lg:px-6 lg:max-[1365px]:gap-0 [scrollbar-width:none]">
       {items.map((item) => (
         <NavLink
           key={item.to}
           to={item.to}
           end={item.end}
-          className={({ isActive }) => `flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-3 text-sm font-semibold whitespace-nowrap no-underline transition-colors ${focusRing} ${
+          className={({ isActive }) => `flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-3 text-sm font-semibold whitespace-nowrap no-underline transition-colors lg:max-[1365px]:px-2 ${focusRing} ${
             isActive ? 'border-accent text-accent' : 'border-transparent text-dim hover:text-ink'}`}
         >
-          <Icon name={item.icon} size={16} />
+          <Icon name={item.icon} size={16} className="lg:max-[1365px]:hidden" />
           {item.label}
         </NavLink>
       ))}

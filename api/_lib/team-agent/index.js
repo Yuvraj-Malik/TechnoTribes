@@ -1,6 +1,6 @@
 // Picks the team agent: live Claude when ANTHROPIC_API_KEY is set, otherwise
 // the simulated (scripted) agent. Both have the same methods:
-// checkConflicts, plan, edit, proposeContextUpdate, rewriteAffected, adjustTask, whatIKnow.
+// checkConflicts, plan, edit, critique, proposeContextUpdate, rewriteAffected, adjustTask, whatIKnow.
 import { CLAUDE_MODEL } from '../claude.js';
 import { mockAgent } from './mock.js';
 import { makeLiveAgent } from './live.js';

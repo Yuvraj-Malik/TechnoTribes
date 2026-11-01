@@ -23,6 +23,8 @@ import MembersPage from './pages/projects/MembersPage';
 import SettingsPage from './pages/projects/SettingsPage';
 import ObserverRequestsPage from './pages/projects/RequestsPage';
 import MySubmissions from './pages/worker/MySubmissions';
+import CodePage from './pages/projects/CodePage';
+import MessagesPage from './pages/projects/MessagesPage';
 import { ObserverSite, ObserverUpdates } from './pages/observer/ObserverPages';
 
 export default function App() {
@@ -55,6 +57,8 @@ export default function App() {
               <Route path="story" element={<ProjectStory />} />
               <Route path="setup" element={<TeamSetup />} />
               <Route path="tasks" element={<TasksPage />} />
+              <Route path="code" element={<CodePage />} />
+              <Route path="messages" element={<MessagesPage />} />
               <Route path="context" element={<ContextPage />} />
               <Route path="team" element={<MembersPage />} />
               <Route path="members" element={<Navigate to="../team" replace />} />

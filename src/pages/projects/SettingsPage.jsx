@@ -72,7 +72,7 @@ function Departments({ departments, people, onChanged }) {
       <Notice error={act.error} ok={act.ok} />
       <ul className="m-0 list-none p-0">
         {departments.map((d) => (
-          <li key={d.id} className="flex flex-col gap-3 border-b border-line py-3 last:border-b-0 sm:flex-row sm:items-center">
+          <li key={d.id} className="flex flex-col gap-3 border-b border-line py-3 last:border-b-0 sm:max-lg:flex-row sm:max-lg:items-center xl:flex-row xl:items-center">
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <input
                 type="color" value={d.color} aria-label={`${d.name} colour`}

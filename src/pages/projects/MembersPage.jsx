@@ -91,10 +91,34 @@ function AddPeople({ api, onChange, isOwner, departments }) {
   );
 }
 
+/** The owner sets each person's job title. It shows on the member's row. */
+function DesignationForm({ m, api, onChange, act, onClose }) {
+  const [value, setValue] = useState(m.designation ?? '');
+  return (
+    <form
+      className="flex w-full flex-wrap gap-2 md:w-auto"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const saved = await act.run(m.userId, () => api.post('team/members/designation', { userId: m.userId, designation: value }), 'Title saved.');
+        if (saved) { onChange(); onClose(); }
+      }}
+    >
+      <input className={`${inputClass} min-w-0 flex-1 md:w-56 md:flex-none`} value={value} maxLength={60} onChange={(e) => setValue(e.target.value)} placeholder="Frontend engineer" aria-label={`${m.name}'s title`} autoFocus />
+      <Button type="submit" className="min-h-11" disabled={!!act.busy}>Save</Button>
+      <Button variant="ghost" className="min-h-11" onClick={onClose}>Cancel</Button>
+    </form>
+  );
+}
+
 function MemberRow({ m, me, isOwner, departments, api, onChange, act }) {
+  const [editingTitle, setEditingTitle] = useState(false);
   const pendingAdmin = m.role === 'admin' && m.status === 'pending';
   const canManage = isOwner ? m.role !== 'owner' && m.role !== 'observer' : me.role === 'admin' && m.role === 'worker' && m.department === me.department;
+  const canTitle = isOwner && m.role !== 'observer' && m.status === 'active';
   const dept = departments.find((d) => d.id === m.department);
+  const titleButton = canTitle && (
+    <Button variant="ghost" className="min-h-11" onClick={() => setEditingTitle(true)}>{m.designation ? 'Edit title' : 'Add title'}</Button>
+  );
   return (
     <li className="flex flex-col gap-3 border-b border-line py-3.5 last:border-b-0 md:flex-row md:items-center">
       <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -106,16 +130,18 @@ function MemberRow({ m, me, isOwner, departments, api, onChange, act }) {
             {m.isDemo && <Badge>demo</Badge>}
             {dept?.managerId === m.userId && <Badge tone="violet">Manages {dept.name}</Badge>}
           </p>
+          {m.designation && <p className="m-0 truncate text-sm font-medium text-ink">{m.designation}</p>}
           <p className="m-0 truncate text-sm text-dim">{m.email ?? ''}{m.email && dept ? ' · ' : ''}{dept?.name ?? (m.role === 'observer' || m.role === 'owner' ? '' : 'No department')}</p>
         </div>
       </div>
-      {pendingAdmin && isOwner ? (
+      {editingTitle ? <DesignationForm m={m} api={api} onChange={onChange} act={act} onClose={() => setEditingTitle(false)} /> : pendingAdmin && isOwner ? (
         <div className="flex gap-2">
           <Button className="min-h-11" disabled={!!act.busy} onClick={() => act.run(m.userId, () => api.post('projects/admins/approve', { userId: m.userId, approve: true }), `${m.name} is now an admin.`).then(onChange)}>Approve admin</Button>
           <Button variant="secondary" className="min-h-11" disabled={!!act.busy} onClick={() => act.run(m.userId, () => api.post('projects/admins/approve', { userId: m.userId, approve: false })).then(onChange)}>Decline</Button>
         </div>
-      ) : canManage && (
+      ) : !canManage ? titleButton : (
         <div className="flex flex-wrap gap-2">
+          {titleButton}
           {isOwner && (
             <>
               <select

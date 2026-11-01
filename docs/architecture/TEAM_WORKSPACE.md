@@ -15,7 +15,9 @@ Real members work the same way: on **Team setup** the owner puts each admin or w
 
 | Route | Who | What |
 |---|---|---|
-| `/projects/:id/workspace` | developers | Context panel, work area (file tree, diff, plain summary, live preview), agent panel, submission bar |
+| `/projects/:id/workspace` | developers and the owner | Context panel, work area (file tree, diff, plain summary, live preview), agent panel with the Critic, submission bar |
+| `/projects/:id/code` | owner and managers | Branches, files, dependencies, and each person's goal and progress |
+| `/projects/:id/messages` | owner and managers | The owner writes to one admin or all of them; an admin reads what was sent to them |
 | `/projects/:id/review` | managers (owner: any department) | Review queue, submission detail, approve / send back / reject, impact step, department overview |
 | `/projects/:id/story` | everyone inside | Full activity log with old → new context values, main project history, real vs simulated |
 | `/projects/:id/setup` | owner | Demo setup/reset, departments, member departments |

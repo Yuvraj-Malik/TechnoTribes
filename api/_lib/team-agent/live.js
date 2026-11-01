@@ -93,6 +93,23 @@ Schema: { "edits": [ { "path": string, "content": string } ], "summary": string 
       }), 16000);
     },
 
+    async critique(input) {
+      return orMock('critique', () => ask(`${base(input)}
+
+You are now the Critic. Another agent made the changes below. Review them against the task and the project context. Do not rewrite them.
+Only report real problems: bugs, broken guardrails, missing cases. "severity" is high (must fix), medium or low.
+
+CHANGES
+${input.diff.slice(0, 20000)}
+
+Schema: { "verdict": "looks_good" | "needs_changes", "summary": string (1-2 plain sentences), "issues": [ { "severity": "high" | "medium" | "low", "note": string } ] }  (empty list if none)`,
+      (o) => ({
+        verdict: o.verdict === 'needs_changes' ? 'needs_changes' : 'looks_good',
+        summary: str(o.summary, 'summary'),
+        issues: arr(o.issues, 'issues').map((i) => ({ severity: ['high', 'medium', 'low'].includes(i.severity) ? i.severity : 'medium', note: str(i.note, 'note') })),
+      })), () => mockAgent.critique(input), onFallback);
+    },
+
     async proposeContextUpdate(input) {
       return orMock('proposeContextUpdate', async () => {
         const r = await ask(`A ${input.department.name} change was just approved and merged.

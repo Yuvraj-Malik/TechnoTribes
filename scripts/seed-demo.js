@@ -347,7 +347,16 @@ async function seedLedgerLite(ids, lib) {
     { user_id: ids.worker2, project_id: pid, kind: 'agent_overlap', title: 'Kabir Singh is changing the same files', body: 'web/index.html, web/styles.css for "Make the features grid stack on phones".', created_at: h(0.55) },
     { user_id: ids.observer, project_id: pid, kind: 'request_accepted', title: 'Your request is being worked on', body: 'It became the task "Add a 14-day free trial to pricing", assigned to Kabir Singh.', created_at: h(7) },
     { user_id: ids.observer, project_id: pid, kind: 'request_done', title: 'Your request is done', body: 'Done: the new pricing page shows ₹ for every plan.', read: true, created_at: h(9) },
-  ]), 'notifications');
+  ], { defaultToNull: false }), 'notifications');
+
+  const designations = { [ids.owner]: 'Founder & tech lead', [ids.admin]: 'Website lead', [ids.worker]: 'Frontend engineer', [ids.worker2]: 'Content engineer' };
+  for (const [userId, designation] of Object.entries(designations)) {
+    await must(db.from('project_members').update({ designation }).eq('project_id', pid).eq('user_id', userId), 'designation');
+  }
+  await must(db.from('messages').insert([
+    { project_id: pid, sender_id: ids.owner, recipient_ids: [ids.admin], to_all: true, text: 'Launch moved to Friday. Please get the pricing page reviewed first.', created_at: h(5) },
+    { project_id: pid, sender_id: ids.owner, recipient_ids: [ids.admin], to_all: false, text: 'Arjun, can you check that the free trial wording matches the pricing rules?', created_at: h(2) },
+  ]), 'messages');
 
   console.log('  LedgerLite filled in: 2 departments, 7 context sections, 3 merges, 5 tasks, 1 submission waiting, 3 observer requests.');
   return p;

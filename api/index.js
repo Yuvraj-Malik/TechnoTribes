@@ -16,6 +16,7 @@ import * as teamReview from '../server/team-review.js';
 import * as teamImpact from '../server/team-impact.js';
 import * as teamContext from '../server/team-context.js';
 import * as teamOverview from '../server/team-overview.js';
+import * as teamOwner from '../server/team-owner.js';
 
 export const routes = {
   'GET health': async () => ({ ok: true, time: new Date().toISOString() }),
@@ -111,6 +112,12 @@ export const routes = {
   'POST team/proposals/preview': teamImpact.preview,
   'POST team/proposals/confirm': teamImpact.confirm,
   'POST team/proposals/discard': teamImpact.discard,
+
+  'GET team/messages': teamOwner.listMessages,
+  'POST team/messages/send': teamOwner.sendMessage,
+  'POST team/members/designation': teamOwner.setDesignation,
+  'GET team/code': teamOwner.code,
+  'POST team/task/critic': teamWork.critic,
 };
 
 const PUBLIC = new Set(['GET health']);

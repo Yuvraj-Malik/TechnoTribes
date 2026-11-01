@@ -24,13 +24,15 @@ const STATUS_WORDS = {
 };
 
 export async function board(projectId, people) {
-  const developers = people.filter((p) => p.isDeveloper);
+  // The owner joins the board once they give their own agent a task.
+  const developers = people.filter((p) => p.isDeveloper || p.role === 'owner');
   const sections = await listSections(projectId);
-  return Promise.all(developers.map(async (u) => {
+  const rows = await Promise.all(developers.map(async (u) => {
     const t = (await devTasks.list(projectId, { user_id: u.id }, 1))[0] ?? null;
+    if (!t && !u.isDeveloper) return null;
     const active = t && ACTIVE.includes(t.status);
     return {
-      userId: u.id, name: u.name, department: u.department,
+      userId: u.id, name: u.name, department: u.department ?? t?.department ?? null,
       task: t && {
         id: t.id, text: t.text, status: t.status, statusWords: STATUS_WORDS[t.status] ?? t.status, active,
         files: [...new Set([...(t.plan?.files ?? []), ...(t.changedFiles ?? [])])],
@@ -40,6 +42,7 @@ export async function board(projectId, people) {
       },
     };
   }));
+  return rows.filter(Boolean);
 }
 
 // GET /api/team/overview?projectId   (everyone inside the project)
