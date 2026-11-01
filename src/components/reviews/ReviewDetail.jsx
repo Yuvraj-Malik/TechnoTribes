@@ -5,6 +5,7 @@ import { useTeam } from '../../context/TeamContext';
 import { SUB_STATUS, scopeName } from '../../constants/statuses';
 import { timeAgo } from '../../utils/time';
 import DiffViewer from './DiffViewer';
+import CriticCard from '../agents/CriticCard';
 import ImpactStep from './ImpactStep';
 import { BuiltOnBadges } from '../agents/SubmissionBar';
 import { Avatar, Badge, Button, Card, Empty, cx, textareaClass } from '../common/ui';
@@ -80,6 +81,7 @@ export default function ReviewDetail({ id, onChanged }) {
       )}
       {s.reviewNote && !open && <Card><span className="text-sm"><b>{nameOf(s.reviewedBy)}'s note:</b> {s.reviewNote}</span></Card>}
 
+      {s.critique && <CriticCard critique={s.critique} />}
       <div className="grid gap-3 md:grid-cols-2">
         <Card>
           <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-dim">What changed (plain words)</div>

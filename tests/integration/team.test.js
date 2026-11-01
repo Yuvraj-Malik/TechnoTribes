@@ -64,6 +64,7 @@ test('demo scenario: cross-department change, mid-task alert, outdated submissio
   rohan = await confirmPlan('rohan', rohan);
   assert.equal(rohan.status, 'done');
   assert.ok(rohan.changedFiles.includes('web/checkout.html'));
+  assert.ok(rohan.critique && ['looks_good', 'minor_issues', 'needs_changes'].includes(rohan.critique.verdict), 'the Critic reviewed the Builder\'s change');
 
   const orderTask = await start('arjun', 'Add an order status endpoint');
   assert.ok(!orderTask.relevantSectionIds.includes('c-payment-api'), 'an order endpoint does not depend on payments');
@@ -177,4 +178,32 @@ test('the observer feed speaks plain language and carries the live site', async 
   const f = await call('GET', 'observer/feed');
   assert.ok(f.changes.length > 0 && f.roadmap.length >= 0);
   assert.ok(Object.keys(f.currentSite.files).some((p) => p.endsWith('.html')));
+});
+
+test('the Critic flags placeholder work from the Builder', async () => {
+  const { ruleChecks } = await import('../../api/_lib/team-agent/critic.js');
+  const f = ruleChecks({ plan: { files: ['a.html'] }, before: { 'a.html': '<p>x</p>' }, after: { 'a.html': '<p>x</p>\n<!-- TODO (simulated agent): add a form -->', 'b.json': '{bad' }, changedFiles: ['a.html', 'b.json'], sections: [] });
+  assert.ok(f.some((x) => x.severity === 'high' && /placeholder/.test(x.issue)));
+  assert.ok(f.some((x) => /JSON is broken/.test(x.issue)));
+  assert.ok(f.some((x) => /not in the confirmed plan/.test(x.issue)));
+});
+
+test('a developer can edit files by hand, import a folder, get a Critic review and submit', async () => {
+  const before = await current('arjun');
+  if (before && !['submitted', 'approved', 'rejected', 'cancelled'].includes(before.status)) {
+    await call('POST', 'team/task/cancel', { as: 'arjun', body: { taskId: before.id } }).catch(() => {});
+  }
+  const saved = await call('POST', 'team/workspace/save', { as: 'arjun', body: { path: 'web/hello.html', content: '<h1>Hello</h1>' } });
+  assert.ok(saved.changedFiles.includes('web/hello.html'));
+  let t = await current('arjun');
+  assert.equal(t.manual, true);
+  await call('POST', 'team/workspace/import', { as: 'arjun', body: { files: { 'web/extra.css': 'h1{color:green}', '../evil.txt': 'x' } } });
+  const files = (await call('GET', 'team/workspace/files', { as: 'arjun' })).files;
+  assert.ok(files.includes('web/extra.css') && !files.some((f) => f.includes('evil')));
+  await call('POST', 'team/workspace/save', { as: 'arjun', body: { path: 'web/extra.css', rename: 'web/site.css' } });
+  t = await call('POST', 'team/workspace/review', { as: 'arjun', body: { taskId: t.id } });
+  assert.ok(t.critique);
+  const sub = await call('POST', 'team/task/submit', { as: 'arjun', body: { taskId: t.id, why: 'Hand edits', force: true } });
+  assert.equal(sub.submitted, true);
+  assert.ok(sub.submission.files.includes('web/site.css'));
 });

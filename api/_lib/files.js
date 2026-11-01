@@ -34,18 +34,20 @@ export async function writeAll(projectId, workspace, files) {
   if (rows.length) await q(db.from('project_files').insert(rows));
 }
 
-/** Applies edits ({ path, content | null }) to a workspace. */
+/** Applies edits ({ path, content | null }) to a workspace, in batches. */
 export async function writeEdits(projectId, workspace, edits) {
-  for (const e of edits) {
-    const path = safePath(e.path);
-    if (e.content === null) {
-      await q(db.from('project_files').delete().eq('project_id', projectId).eq('workspace', workspace).eq('path', path));
-    } else {
-      await q(db.from('project_files').upsert(
-        { project_id: projectId, workspace, path, content: e.content, updated_at: new Date().toISOString() },
-        { onConflict: 'project_id,workspace,path' },
-      ));
-    }
+  const clean = edits.map((e) => ({ path: safePath(e.path), content: e.content }));
+  const gone = clean.filter((e) => e.content === null).map((e) => e.path);
+  const kept = [...new Map(clean.filter((e) => e.content !== null).map((e) => [e.path, e])).values()];
+  for (let i = 0; i < gone.length; i += 100) {
+    await q(db.from('project_files').delete().eq('project_id', projectId).eq('workspace', workspace).in('path', gone.slice(i, i + 100)));
+  }
+  const at = new Date().toISOString();
+  for (let i = 0; i < kept.length; i += 100) {
+    await q(db.from('project_files').upsert(
+      kept.slice(i, i + 100).map((e) => ({ project_id: projectId, workspace, path: e.path, content: e.content, updated_at: at })),
+      { onConflict: 'project_id,workspace,path' },
+    ));
   }
 }
 

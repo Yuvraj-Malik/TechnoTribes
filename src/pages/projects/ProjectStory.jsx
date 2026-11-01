@@ -177,7 +177,7 @@ export default function ProjectStory() {
           <li><Badge tone="green">Real</Badge> sign-in, roles, departments, Postgres storage, notifications, activity log</li>
           <li><Badge tone="green">Real</Badge> per-developer project copies, diffs, 3-way merge into main, merge-conflict detection</li>
           <li><Badge tone="green">Real</Badge> versioned context, relevance, outdated detection, impact analysis</li>
-          <li><Badge tone={boot.agentMode === 'live' ? 'green' : 'amber'}>{boot.agentMode === 'live' ? 'Real' : 'Simulated'}</Badge> agent reasoning and code edits ({boot.agentMode === 'live' ? `Claude ${boot.agentModel}` : 'scripted; set ANTHROPIC_API_KEY for live'})</li>
+          <li><Badge tone={boot.agentMode === 'live' ? 'green' : 'amber'}>{boot.agentMode === 'live' ? 'Real' : 'Simulated'}</Badge> agent reasoning and code edits ({boot.agentMode === 'live' ? `Builder ${boot.agentModel}, Critic ${boot.criticModel}` : 'scripted; set BUILDER_MODEL and its API key for live'})</li>
           <li><Badge tone="amber">Simulated</Badge> the eight CampusEats demo people, and four days of context history before the demo</li>
         </ul>
         {boot.canUseDemoMode && <Link to={`/projects/${boot.project.id}/setup`} className="text-sm font-semibold text-accent">Team setup / reset demo</Link>}

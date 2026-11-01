@@ -83,11 +83,13 @@ test('the owner runs their own Builder and Critic, and a manager reviews the res
   assert.equal(task.status, 'done');
 
   task = await call('POST', 'team/task/critic', { body: { taskId: task.id } });
-  assert.ok(['looks_good', 'needs_changes'].includes(task.critique.verdict));
+  assert.ok(['looks_good', 'minor_issues', 'needs_changes'].includes(task.critique.verdict));
   assert.equal(task.messages.at(-1).from, 'critic');
+  const firstReview = task.critique.at;
 
+  // The Critic reviews again on its own after the work changes.
   task = await call('POST', 'team/task/follow-up', { body: { taskId: task.id, message: 'Add a back to menu link' } });
-  assert.equal(task.critique, null, 'changed work needs a fresh review');
+  assert.ok(task.critique && task.critique.at >= firstReview, 'changed work gets a fresh review');
 
   const { submitted, submission } = await call('POST', 'team/task/submit', { body: { taskId: task.id, why: 'Students need to pay', force: true } });
   assert.equal(submitted, true);

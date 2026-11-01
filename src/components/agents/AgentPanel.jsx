@@ -278,12 +278,13 @@ function CriticCard({ task, act, pending, simulated }) {
       {review ? (
         <>
           <div className="mb-2 flex items-start gap-2">
-            <Badge tone={review.verdict === 'looks_good' ? 'green' : 'red'}>{review.verdict === 'looks_good' ? 'Looks good' : 'Needs changes'}</Badge>
+            <Badge tone={review.verdict === 'looks_good' ? 'green' : review.verdict === 'minor_issues' ? 'amber' : 'red'}>{review.verdict === 'looks_good' ? 'Looks good' : review.verdict === 'minor_issues' ? 'Minor issues' : 'Needs changes'}</Badge>
             <p className="m-0 text-sm text-ink">{review.summary}</p>
           </div>
-          {review.issues.length > 0 && (
+          {review.model && <p className="m-0 mb-1.5 text-[11px] text-dim">Reviewed by {review.model.split(':').pop()}{review.mode === 'rules' ? ' (automatic checks)' : ' + automatic checks'}</p>}
+          {(review.issues ?? []).length > 0 && (
             <ul className="m-0 list-none space-y-1.5 p-0">
-              {review.issues.map((issue, i) => (
+              {(review.issues ?? []).map((issue, i) => (
                 <li key={i} className="flex items-start gap-2 text-xs text-ink">
                   <Badge tone={SEVERITY[issue.severity]}>{issue.severity}</Badge>
                   <span className="min-w-0">{issue.note}</span>
@@ -319,7 +320,7 @@ export default function AgentPanel({ task, onChanged }) {
     try { const r = await post(path, body); onChanged?.(); return r; } catch (e) { setError(e.message); } finally { setPending(''); }
   };
 
-  const canStart = !task || ['submitted', 'approved', 'rejected', 'cancelled', 'failed'].includes(task.status);
+  const canStart = !task || ['submitted', 'approved', 'rejected', 'cancelled', 'failed'].includes(task.status) || (task.manual && task.status === 'done');
   const showTask = task && task.status !== 'cancelled';
 
   return (
@@ -411,8 +412,8 @@ export default function AgentPanel({ task, onChanged }) {
             <ol className="m-0 list-none space-y-1.5 border-l-2 border-line p-0 pl-3">
               {[...task.messages].reverse().slice(0, 12).map((m, i) => (
                 <li key={i} className="text-xs">
-                  <span className={cx('font-semibold', m.from === 'agent' ? 'text-accent' : m.from === 'manager' || m.from === 'critic' ? 'text-pip-b' : m.from === 'developer' ? 'text-ink' : 'text-dim')}>
-                    {m.from === 'agent' ? 'Agent' : m.from === 'developer' ? me.name : m.from === 'manager' ? 'Manager' : m.from === 'critic' ? 'Critic' : 'System'}
+                  <span className={cx('font-semibold', m.from === 'agent' ? 'text-accent' : m.from === 'critic' ? 'text-mark' : m.from === 'manager' ? 'text-pip-b' : m.from === 'developer' ? 'text-ink' : 'text-dim')}>
+                    {m.from === 'agent' ? 'Builder' : m.from === 'critic' ? 'Critic' : m.from === 'developer' ? me.name : m.from === 'manager' ? 'Manager' : 'System'}
                   </span>
                   <span className="text-dim"> · {timeAgo(m.at)}</span>
                   <div className="text-dim">{m.text}</div>

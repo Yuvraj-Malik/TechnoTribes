@@ -104,8 +104,8 @@ export default function TeamTopBar() {
         </p>
       </div>
       <div className="ml-auto flex flex-wrap items-center gap-2">
-        <Badge tone={live ? 'green' : 'amber'} title={live ? `Agents call Claude (${boot.agentModel})` : 'No ANTHROPIC_API_KEY on the server: agents use scripted responses'}>
-          {live ? `● Live agent · ${boot.agentModel}` : '⚙ Simulated agent'}
+        <Badge tone={live ? 'green' : 'amber'} title={live ? `Builder: ${boot.agentModel} · Critic: ${boot.criticModel}` : 'No model API key on the server: agents use scripted responses'}>
+          {live ? `● Live agents · ${boot.agentModel}` : '⚙ Simulated agent'}
         </Badge>
         {/* Your own notifications are in the navbar bell. This one shows the demo person's. */}
         {me.actingAs && <Bell />}

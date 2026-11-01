@@ -3,7 +3,7 @@
 export function workStatus(task, submission, outdated) {
   if (!task || task.status === 'cancelled') return 'Draft';
   switch (task.status) {
-    case 'reading_context': case 'checking_conflicts': case 'planning': case 'working': return 'Agent working';
+    case 'reading_context': case 'checking_conflicts': case 'planning': case 'working': case 'reviewing': return 'Agent working';
     case 'needs_conflict_decision': case 'awaiting_plan_approval': case 'needs_context_decision': case 'needs_action_approval': case 'failed': return 'Needs your decision';
     case 'done': return outdated ? 'Outdated' : 'Ready to submit';
     case 'submitted': return submission?.outdated?.length ? 'Outdated' : 'Submitted';
@@ -23,7 +23,8 @@ export const AGENT_STEPS = [
   { key: 'read', label: 'Reading context', statuses: ['reading_context'] },
   { key: 'check', label: 'Checking for conflicts', statuses: ['checking_conflicts', 'needs_conflict_decision'] },
   { key: 'plan', label: 'Waiting for plan approval', statuses: ['planning', 'awaiting_plan_approval'] },
-  { key: 'work', label: 'Working', statuses: ['working', 'needs_action_approval'] },
+  { key: 'work', label: 'Builder making changes', statuses: ['working', 'needs_action_approval'] },
+  { key: 'review', label: 'Critic reviewing', statuses: ['reviewing'] },
   { key: 'done', label: 'Done', statuses: ['done', 'needs_context_decision', 'submitted', 'approved', 'sent_back', 'rejected'] },
 ];
 

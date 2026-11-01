@@ -11,13 +11,13 @@ import { logEvent, toEvent } from '../api/_lib/activity.js';
 import { notify } from '../api/_lib/log.js';
 
 const projectIdOf = (ctx) => ctx.body?.projectId ?? ctx.query?.projectId;
-const ACTIVE = ['reading_context', 'checking_conflicts', 'needs_conflict_decision', 'planning', 'awaiting_plan_approval', 'working', 'done', 'needs_context_decision', 'needs_action_approval', 'sent_back', 'failed'];
+const ACTIVE = ['reading_context', 'checking_conflicts', 'needs_conflict_decision', 'planning', 'awaiting_plan_approval', 'working', 'reviewing', 'done', 'needs_context_decision', 'needs_action_approval', 'sent_back', 'failed'];
 
 /** Latest task of every developer (the live board). Plain words for the status. */
 const STATUS_WORDS = {
   reading_context: 'Agent is reading the context', checking_conflicts: 'Agent is checking for conflicts',
   needs_conflict_decision: 'Waiting for a decision about a conflict', planning: 'Agent is planning',
-  awaiting_plan_approval: 'Waiting to approve the plan', working: 'Agent is making changes',
+  awaiting_plan_approval: 'Waiting to approve the plan', working: 'Agent is making changes', reviewing: 'Critic agent is reviewing the change',
   done: 'Changes ready to review and submit', needs_context_decision: 'Context changed: deciding how to continue',
   sent_back: 'Sent back by the manager: reworking', failed: 'Agent hit a problem', submitted: 'Submitted for review',
   approved: 'Approved and merged', rejected: 'Rejected', cancelled: 'Cancelled',

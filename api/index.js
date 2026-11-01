@@ -112,6 +112,9 @@ export const routes = {
   'POST team/task/share': teamWork.share,
   'POST team/task/action-decision': teamWork.actionDecision,
   'POST team/task/undo-edits': teamWork.undoEdits,
+  'POST team/workspace/save': teamWork.save,
+  'POST team/workspace/import': teamWork.importFiles,
+  'POST team/workspace/review': teamWork.review,
 
   'GET team/review/queue': teamReview.queue,
   'GET team/review/detail': teamReview.detail,

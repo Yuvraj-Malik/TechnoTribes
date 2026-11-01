@@ -1,13 +1,14 @@
-// LIVE agent: calls Claude (api/_lib/claude.js) and validates the JSON it
+// LIVE agent: calls the configured model (api/_lib/llm.js: Groq, Gemini, OpenRouter or Claude) and validates the JSON it
 // returns. Same interface as the simulated agent. Context guardrails and
 // impact analysis stay deterministic; Claude adds judgement on top.
-import { callClaudeJSON, ROUTINE_MODEL } from '../claude.js';
+import { callLLMJSON } from '../llm.js';
+import { ROUTINE_MODEL } from '../claude.js';
 import { mockAgent } from './mock.js';
 
-const SYSTEM = `You are a software agent on CampusEats, a food-ordering web app for a college campus, built by several departments (Frontend, Backend, Payments).
-Each department has a manager and developers; each developer has their own agent (you). Humans stay in control: explain in plain, short sentences and never act beyond what you were asked.
+const RULES = `The project is built by several departments. Each department has a manager and developers; each developer has their own agent (you). Humans stay in control: explain in plain, short sentences and never act beyond what you were asked.
 The project context is the source of truth. Sections have ids, versions, owners and "agents watch for" guardrails. Respect them.
 Reply with ONLY one JSON object matching the schema you are given.`;
+const systemFor = (project) => `You are a software agent on the project "${project?.name ?? 'this project'}"${project?.description ? ` (${project.description})` : ''}.\n${RULES}`;
 
 const renderSections = (sections) => sections.map((s) => [
   `[${s.id}] ${s.scope === 'central' ? 'Central' : s.scope} › ${s.title} (v${s.version})`,
@@ -27,13 +28,25 @@ ALL FILES IN THE WORKSPACE
 ${i.fileIndex.join('\n')}
 ${i.memory?.length ? `\nPAST NOTES ABOUT THIS (learn from them; rejected suggestions were rejected for a reason)\n${i.memory.map((m) => `- [${m.type}] ${m.title}: ${m.text}`).join('\n')}` : ''}`;
 
-// Small validators: throw on the wrong shape so callClaudeJSON retries once.
+// Small validators: throw on the wrong shape so the model is asked once more.
 const str = (v, name) => { if (typeof v !== 'string') throw new Error(`${name} must be a string`); return v; };
 const arr = (v, name) => { if (!Array.isArray(v)) throw new Error(`${name} must be an array`); return v; };
 
-async function ask(prompt, validate, maxTokens = 4000, model = undefined) {
-  return callClaudeJSON({ system: SYSTEM, prompt, maxTokens, timeoutMs: 55000, ...(model ? { model } : {}) }, validate);
+function asker(loadProject, used) {
+  let project;
+  // A routine (cheap) check asks the small Critic model; everything else the Builder model.
+  return async (prompt, validate, maxTokens = 4000, routine = undefined) => {
+    project ??= await loadProject?.().catch(() => null) ?? null;
+    const { value, model } = await callLLMJSON(routine ? 'critic' : 'builder', { system: systemFor(project), prompt, maxTokens, timeoutMs: 55000 }, validate);
+    used.push(model);
+    return value;
+  };
 }
+
+// The conflict check and the plan come from ONE model call (saves a request per task);
+// the plan waits here until the pipeline asks for it.
+const planCache = new Map();
+const cacheKey = (i) => `${i.user.id}|${i.task}|${i.sections.map((s) => `${s.id}@${s.version}`).sort().join(',')}`;
 
 /** Non-critical calls fall back to the simulated agent instead of blocking a human decision. */
 async function orMock(label, live, fallback, onFallback) {
@@ -46,17 +59,27 @@ async function orMock(label, live, fallback, onFallback) {
   }
 }
 
-export function makeLiveAgent({ onFallback } = {}) {
+export function makeLiveAgent({ onFallback, loadProject } = {}) {
+  const used = [];
+  const ask = asker(loadProject, used);
   return {
     mode: 'live',
+    get lastModel() { return used[used.length - 1] ?? null; },
 
     async checkConflicts(input) {
       const r = await ask(`${base(input)}
 
-Before doing anything: does this task conflict with the context, or rely on information the context says is outdated?
-Only report real conflicts (the task would contradict a section), not sections that merely relate.
-Schema: { "conflicts": [ { "sectionId": string, "kind": "conflict" | "outdated", "explanation": string } ] }  (empty list if none)`,
-      (o) => ({ conflicts: arr(o.conflicts, 'conflicts') }));
+CURRENT FILES IN THE DEPARTMENT'S AREA
+${renderFiles(input.files)}
+
+Two things, in one answer:
+1. Does this task conflict with the context, or rely on information the context says is outdated? Only report real conflicts (the task would contradict a section), not sections that merely relate.
+2. If there is no conflict, write a short plan for the developer to confirm.
+Schema: { "conflicts": [ { "sectionId": string, "kind": "conflict" | "outdated", "explanation": string } ], "plan": { "understanding": string (1-2 sentences), "steps": string[] (2-5), "files": string[] (repo-relative paths you will create or change) } | null }`,
+      (o) => ({ conflicts: arr(o.conflicts ?? [], 'conflicts'), plan: o.plan ?? null }));
+      if (r.plan?.understanding && Array.isArray(r.plan.steps) && Array.isArray(r.plan.files)) {
+        planCache.set(cacheKey(input), { plan: { understanding: String(r.plan.understanding), steps: r.plan.steps.map(String), files: r.plan.files.map(String) }, at: Date.now() });
+      }
       return r.conflicts.flatMap((c) => {
         const s = input.sections.find((x) => x.id === c.sectionId);
         return s ? [{ sectionId: s.id, sectionTitle: s.title, scope: s.scope, kind: c.kind === 'outdated' ? 'outdated' : 'conflict', explanation: String(c.explanation) }] : [];
@@ -64,6 +87,10 @@ Schema: { "conflicts": [ { "sectionId": string, "kind": "conflict" | "outdated",
     },
 
     async plan(input) {
+      const k = cacheKey(input);
+      const hit = planCache.get(k);
+      planCache.delete(k);
+      if (hit && Date.now() - hit.at < 15 * 60000) return hit.plan;
       return ask(`${base(input)}
 
 CURRENT FILES IN THE DEPARTMENT'S AREA

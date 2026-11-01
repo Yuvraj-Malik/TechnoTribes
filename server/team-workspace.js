@@ -13,6 +13,7 @@ import {
   BASE, diffMaps, ensureWorkspace, isBehindMain, readAll, readOne, resetWorkspace, safePath, syncWithMain, workspaceDiff, writeEdits,
 } from '../api/_lib/files.js';
 import { agentMode, getTeamAgent } from '../api/_lib/team-agent/index.js';
+import { critique } from '../api/_lib/team-agent/critic.js';
 import { db, q } from '../api/_lib/supabase-admin.js';
 import { getAssignment, syncAssignment } from '../api/_lib/assignments.js';
 import { createSuggestion } from '../api/_lib/suggestions.js';
@@ -22,7 +23,7 @@ import { ownerOf } from '../api/_lib/log.js';
 
 /** Statuses where the developer can start a fresh task. */
 const FINISHED = ['submitted', 'approved', 'rejected', 'cancelled'];
-const ACTIVE = ['reading_context', 'checking_conflicts', 'needs_conflict_decision', 'planning', 'awaiting_plan_approval', 'working', 'done', 'needs_context_decision', 'needs_action_approval', 'sent_back'];
+const ACTIVE = ['reading_context', 'checking_conflicts', 'needs_conflict_decision', 'planning', 'awaiting_plan_approval', 'working', 'reviewing', 'done', 'needs_context_decision', 'needs_action_approval', 'sent_back'];
 const nowIso = () => new Date().toISOString();
 
 // ---------------------------------------------------------------- helpers
@@ -78,7 +79,11 @@ async function agentInput(t, sections, extraFiles = []) {
   const department = await getDepartment(t.projectId, t.department);
   const files = await readAll(t.projectId, t.userId);
   const fileIndex = Object.keys(files).sort();
-  const wanted = new Set([...fileIndex.filter((f) => department.paths.some((p) => f.startsWith(p))), ...extraFiles]);
+  // Departments with path filters see their area; otherwise the agent sees every file (capped).
+  const inArea = department.paths?.length ? fileIndex.filter((f) => department.paths.some((p) => f.startsWith(p))) : fileIndex;
+  let budget = 120000;
+  const area = inArea.filter((f) => (budget -= files[f].length) >= 0);
+  const wanted = new Set([...area, ...extraFiles]);
   return {
     task: t.text, user: { id: t.userId, name: t.userName }, department, sections, fileIndex, memory: t.memory ?? [],
     files: [...wanted].filter((p) => p in files).map((path) => ({ path, content: files[path] })),
@@ -233,7 +238,9 @@ async function workStep(t, followUp) {
   if (await contextMoved(t)) return;
   await saveTask(t, { status: 'working' });
   const input = await agentInput(t, await sectionsOf(t), t.plan?.files ?? []);
-  const result = await getTeamAgent(t.projectId).edit({ ...input, plan: t.plan, followUp, previousSummary: t.summary });
+  const agent = getTeamAgent(t.projectId);
+  const result = await agent.edit({ ...input, plan: t.plan, followUp, previousSummary: t.summary });
+  t.builderModel = agent.lastModel ?? null;
   const all = result.edits.flatMap((e) => { try { return [{ path: safePath(e.path), content: e.content }]; } catch { return []; } });
   // Blocked, not just discouraged: files outside the department's area are never written.
   const inMyArea = all.filter((e) => inArea(input.department, e.path));
@@ -290,9 +297,27 @@ async function finishWork(t, edits, result, followUp) {
   const { diff: diffText, files } = await workspaceDiff(t.projectId, t.userId);
   t.summaryDraft = await draftSummary(t, { ...result, why: followUp && t.whyDraft ? t.whyDraft : result.why }, files, diffText);
   say(t, 'agent', followUp ? `Done: ${result.summary}` : `Finished. ${result.summary}`);
-  await saveTask(t, { status: 'done', summary: result.summary, whyDraft: followUp && t.whyDraft ? t.whyDraft : result.why, changedFiles: files, critique: null, pendingAction: null });
+  await saveTask(t, { status: 'reviewing', builderModel: t.builderModel ?? null, summary: result.summary, whyDraft: followUp && t.whyDraft ? t.whyDraft : result.why, changedFiles: files, critique: null, pendingAction: null });
   await taskLog(t, 'agent.edits', `Agent changed ${edits.length} file(s) in ${t.userName}'s workspace`, {
-    files: edits.map((e) => e.path), summary: result.summary, followUp: followUp ?? null,
+    files: edits.map((e) => e.path), summary: result.summary, followUp: followUp ?? null, model: t.builderModel,
+  });
+  await criticStep(t, files);
+}
+
+/** The Critic agent reviews the Builder's change before the developer submits it. */
+async function criticStep(t, changedFiles) {
+  const [before, after, sections, project] = await Promise.all([
+    readAll(t.projectId, BASE(t.userId)), readAll(t.projectId, t.userId), sectionsOf(t),
+    q(db.from('projects').select('name,description').eq('id', t.projectId).single()).catch(() => null),
+  ]);
+  const review = await critique({ project, task: t.text, plan: t.plan, sections, before, after, changedFiles });
+  const n = review.findings.length;
+  say(t, 'critic', review.verdict === 'looks_good'
+    ? `Looks good. ${review.summary}`
+    : `${n} thing${n > 1 ? 's' : ''} to check. ${review.summary}`);
+  await saveTask(t, { status: 'done', critique: review });
+  await taskLog(t, 'agent.critique', `Critic reviewed ${t.userName}'s change: ${review.verdict.replace('_', ' ')}${n ? ` (${n} finding${n > 1 ? 's' : ''})` : ''}`, {
+    verdict: review.verdict, findings: review.findings, mode: review.mode,
   });
 }
 
@@ -409,9 +434,12 @@ export async function start(ctx) {
     || (assignment ? `${assignment.title}${assignment.description ? `. ${assignment.description}` : ''}` : '');
   if (!text) throw new HttpError(400, 'Describe the task first');
   const prev = await currentTask(projectId, actor.id);
-  if (prev && !FINISHED.includes(prev.status) && prev.status !== 'failed') throw new HttpError(409, 'Finish, submit or cancel your current task first');
+  // Hand edits that were not submitted yet carry over into the agent's task (nothing is lost).
+  const keepEdits = prev?.manual && ['done', 'sent_back'].includes(prev.status);
+  if (keepEdits) await saveTask(prev, { status: 'cancelled' });
+  else if (prev && !FINISHED.includes(prev.status) && prev.status !== 'failed') throw new HttpError(409, 'Finish, submit or cancel your current task first');
   await ensureWorkspace(projectId, actor.id);
-  if (!prev || prev.status !== 'sent_back') await resetWorkspace(projectId, actor.id);
+  if (!keepEdits && (!prev || prev.status !== 'sent_back')) await resetWorkspace(projectId, actor.id);
   const t = {
     id: devTasks.newId(), projectId, userId: actor.id, userName: actor.name, department: await workDepartment(projectId, actor, ctx.body.department), text,
     status: 'reading_context', relevantSectionIds: [], conflicts: [], plan: null, summary: '', whyDraft: '', changedFiles: [],
@@ -480,17 +508,18 @@ export async function followUp(ctx) {
 
 // POST /api/team/task/critic { projectId, taskId }
 // The Critic reads the finished changes and reports problems. It never edits anything.
+// It also runs on its own after every build; this re-runs it (for example after hand edits).
 export async function critic(ctx) {
   const { actor, projectId } = await devActor(ctx);
   const t = await mustGet(ctx.body.taskId, actor);
   if (!['done', 'sent_back'].includes(t.status)) throw new HttpError(409, 'The Critic reviews finished work');
-  const { diff: changes, files: changedFiles } = await workspaceDiff(projectId, actor.id);
+  const { files: changedFiles } = await workspaceDiff(projectId, actor.id);
   if (!changedFiles.length) throw new HttpError(409, 'There are no changes to review');
-  const review = await getTeamAgent(projectId).critique({ ...(await agentInput(t, await sectionsOf(t))), diff: changes, changedFiles });
-  say(t, 'critic', review.summary);
-  await saveTask(t, { critique: { ...review, at: nowIso() } });
-  await taskLog(t, 'agent.critic', `Critic reviewed "${t.text}": ${review.issues.length} issue(s) found`, { review });
-  return t;
+  const back = t.status;
+  await saveTask(t, { status: 'reviewing' });
+  await criticStep(t, changedFiles);
+  if (back === 'sent_back') await saveTask(t, { status: 'sent_back' });
+  return devTasks.get(t.id);
 }
 
 // POST /api/team/task/retry { projectId, taskId }
@@ -541,7 +570,7 @@ export async function submit(ctx) {
   const title = t.text.length > 70 ? `${t.text.slice(0, 67)}…` : t.text.charAt(0).toUpperCase() + t.text.slice(1);
   const sub = {
     id: workSubmissions.newId(), projectId, taskId: t.id, userId: actor.id, userName: actor.name, department: t.department,
-    title, summary: t.summary, why, diff, files, builtOn: t.builtOn, status: 'pending',
+    title, summary: t.summary, why, diff, files, builtOn: t.builtOn, status: 'pending', critique: t.critique ?? null,
     // The exact change: each touched file's base and new content (null = deleted / absent).
     base: Object.fromEntries(files.map((p) => [p, base[p] ?? null])),
     changes: Object.fromEntries(files.map((p) => [p, mine[p] ?? null])),
@@ -585,7 +614,7 @@ export async function raiseContextAlert(projectId, userId, changes, changeSummar
     relation, resolution: null, suggestedTask,
   };
   say(t, 'agent', `Heads up: the context changed while I was working. ${relation}`);
-  const busy = ['reading_context', 'checking_conflicts', 'planning', 'working'].includes(t.status);
+  const busy = ['reading_context', 'checking_conflicts', 'planning', 'working', 'reviewing'].includes(t.status);
   if (!busy) { t.resumeStatus = t.status; t.status = 'needs_context_decision'; }
   await devTasks.put({ ...t, updatedAt: nowIso() });
   await taskLog(t, 'task.context_alert', `${t.userName}'s agent flagged a mid-task context change: ${relation}`, { alert: t.contextAlert });
@@ -681,11 +710,98 @@ export async function file(ctx) {
   return { path: ctx.query.path, content: await readOne(projectId, workspace, ctx.query.path) };
 }
 
-// GET /api/team/workspace/bundle?projectId[&workspace=main]  (all web files, for the live preview)
+// GET /api/team/workspace/bundle?projectId[&workspace=main]  (every file, for the live preview)
 export async function bundle(ctx) {
   const { projectId, workspace } = await whoseFiles(ctx);
-  const all = await readAll(projectId, workspace);
-  return { files: Object.fromEntries(Object.entries(all).filter(([p]) => p.startsWith('web/'))) };
+  return { files: await readAll(projectId, workspace) };
+}
+
+// ---------------------------------------------------------------- editing by hand
+const MAX_FILE = 300000;
+const BUSY_STATUSES = ['reading_context', 'checking_conflicts', 'planning', 'working', 'reviewing'];
+
+/**
+ * The task that holds the developer's own edits. Editing while the agent is busy is
+ * refused; with no open task, a "manual edits" task is opened so the work can be
+ * reviewed by the Critic and submitted like the agent's.
+ */
+async function editableTask(projectId, actor) {
+  const t = await activeTask(projectId, actor.id);
+  if (t && BUSY_STATUSES.includes(t.status)) throw new HttpError(409, 'Your agent is working in your files right now. Wait for it to finish.');
+  if (t && ['done', 'sent_back', 'awaiting_plan_approval', 'needs_conflict_decision', 'needs_context_decision'].includes(t.status)) return t;
+  await ensureWorkspace(projectId, actor.id);
+  const all = await listSections(projectId);
+  const sections = all.filter((x) => x.scope === 'central' || x.scope === actor.department);
+  const m = {
+    id: devTasks.newId(), projectId, userId: actor.id, userName: actor.name, department: actor.department,
+    text: `Manual edits by ${actor.name}`, status: 'done', manual: true,
+    relevantSectionIds: sections.map((x) => x.id), conflicts: [], plan: null, summary: '', whyDraft: '', changedFiles: [],
+    contextAlert: null, builtOn: await builtOnFor(projectId, sections.map((x) => x.id)), messages: [], submissionId: null,
+    reviewNote: null, resumeStatus: null, assignmentId: null, peers: [], createdAt: nowIso(), updatedAt: nowIso(),
+  };
+  say(m, 'system', `${actor.name} is editing files by hand.`);
+  await devTasks.put(m);
+  await taskLog(m, 'task.manual', `${actor.name} started editing files by hand`);
+  return m;
+}
+
+async function afterManualEdit(t, projectId, actor) {
+  const { files } = await workspaceDiff(projectId, actor.id);
+  const summary = t.manual ? `Edited by hand: ${files.join(', ') || 'no changes'}` : t.summary;
+  await saveTask(t, { changedFiles: files, summary, critique: null });
+  return { changedFiles: files, taskId: t.id };
+}
+
+// POST /api/team/workspace/save { projectId, path, content | null, rename? }   (developer, own copy)
+export async function save(ctx) {
+  const { actor, projectId } = await devActor(ctx);
+  const path = safePath(ctx.body.path);
+  const t = await editableTask(projectId, actor);
+  if (ctx.body.rename) {
+    const to = safePath(ctx.body.rename);
+    const content = await readOne(projectId, actor.id, path);
+    if (content == null) throw new HttpError(404, 'File not found');
+    await writeEdits(projectId, actor.id, [{ path: to, content }, { path, content: null }]);
+  } else {
+    const content = ctx.body.content === null ? null : String(ctx.body.content ?? '');
+    if (content != null && content.length > MAX_FILE) throw new HttpError(413, 'File is too large (max 300 KB)');
+    await writeEdits(projectId, actor.id, [{ path, content }]);
+  }
+  return afterManualEdit(t, projectId, actor);
+}
+
+// POST /api/team/workspace/import { projectId, files: { path: content }, replace?, keep?: [paths] }
+// Loads a folder from the developer's computer into their own copy.
+export async function importFiles(ctx) {
+  const { actor, projectId } = await devActor(ctx);
+  const incoming = ctx.body.files && typeof ctx.body.files === 'object' ? ctx.body.files : null;
+  if (!incoming) throw new HttpError(400, 'files must be an object of path → content');
+  const entries = Object.entries(incoming).slice(0, 500);
+  const t = await editableTask(projectId, actor);
+  const edits = [];
+  for (const [p, c] of entries) {
+    if (typeof c !== 'string' || c.length > MAX_FILE) continue;
+    try { edits.push({ path: safePath(p), content: c }); } catch { /* skip unsafe paths */ }
+  }
+  if (ctx.body.replace) {
+    const current = Object.keys(await readAll(projectId, actor.id));
+    // keep: every path in the folder (it may arrive over several requests).
+    const keep = new Set([...edits.map((e) => e.path), ...(Array.isArray(ctx.body.keep) ? ctx.body.keep.map(String) : [])]);
+    for (const p of current) if (!keep.has(p)) edits.push({ path: p, content: null });
+  }
+  await writeEdits(projectId, actor.id, edits);
+  await taskLog(t, 'task.import', `${actor.name} loaded ${entries.length} file(s) from their computer`);
+  return { imported: edits.filter((e) => e.content != null).length, ...(await afterManualEdit(t, projectId, actor)) };
+}
+
+// POST /api/team/workspace/review { projectId, taskId }   (ask the Critic to review the current edits)
+export async function review(ctx) {
+  const { actor } = await devActor(ctx);
+  const t = await mustGet(ctx.body.taskId, actor);
+  if (!['done', 'sent_back'].includes(t.status)) throw new HttpError(409, 'Nothing ready to review');
+  await saveTask(t, { status: 'reviewing' });
+  await criticStep(t, t.changedFiles ?? []);
+  return devTasks.get(t.id);
 }
 
 // GET /api/team/workspace/diff?projectId

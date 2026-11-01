@@ -64,7 +64,7 @@ export default function DeveloperWorkspace() {
           )}
         </aside>
         <section className="flex min-h-[480px] min-w-0 flex-col p-4">
-          <WorkArea task={task} />
+          <WorkArea task={task} onChanged={load} />
         </section>
         <aside className="space-y-4 overflow-y-auto border-t border-line bg-bg p-4 lg:border-l lg:border-t-0">
           <AgentPanel task={cur.task} onChanged={load} />
