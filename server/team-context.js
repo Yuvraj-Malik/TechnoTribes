@@ -4,12 +4,10 @@
 // work depends on a changed section get the mid-task "context changed" alert.
 import { HttpError } from '../api/_lib/errors.js';
 import { requireFields } from '../api/_lib/http.js';
-import { db, q } from '../api/_lib/supabase-admin.js';
 import { listDepartments, listPeople, teamActor } from '../api/_lib/team.js';
-import { changeSection, insertSection, listSections, scopeLabel } from '../api/_lib/context.js';
-import { notifyMany, logEvent } from '../api/_lib/activity.js';
+import { KIND_LABEL, listSections } from '../api/_lib/context.js';
 import { analyseImpact } from './team-impact.js';
-import { raiseContextAlert } from './team-workspace.js';
+import { routeEdits } from './team-suggestions.js';
 
 const projectIdOf = (ctx) => ctx.body?.projectId ?? ctx.query?.projectId;
 
@@ -72,44 +70,21 @@ export async function preview(ctx) {
 }
 
 // POST /api/team/context/save { projectId, scope, edits: [{ sectionId, content, why }] }
+// Every edit is a suggestion: the founder's own central edits and a manager's own
+// department edits apply at once (and are logged); anything touching central
+// that someone else makes goes to the founder.
 export async function save(ctx) {
   requireFields(ctx.body, ['scope']);
   const { actor, projectId } = await editor(ctx, ctx.body.scope);
   const changes = (await changesFor(projectId, validEdits(ctx.body), ctx.body.scope)).filter((c) => c.include);
-  if (!changes.length) return { saved: 0 };
+  if (!changes.length) return { saved: 0, suggestions: [] };
   for (const c of changes) if (!c.why) throw new HttpError(400, `Say why "${c.title}" changed, so the team and agents understand it`);
-
-  const impact = await analyseImpact(projectId, changes, ctx.body.scope, actor.id, []);
-  const bumpedScopes = new Set();
-  const applied = [];
-  for (const c of [...changes.filter((x) => x.level === 'central'), ...changes.filter((x) => x.level !== 'central')]) {
-    const r = await changeSection(projectId, { sectionId: c.sectionId, content: c.newContent, why: c.why, by: actor.id, bumpedScopes });
-    applied.push({ sectionId: c.sectionId, title: c.title, scope: c.scope, fromVersion: r.fromVersion, toVersion: r.toVersion, why: c.why });
-  }
-  const summary = applied.map((a) => `${scopeLabel(a.scope)} › ${a.title}: ${a.why}`).join('; ');
-  await logEvent(projectId, {
-    type: 'impact.decision', actorId: actor.id, department: ctx.body.scope === 'central' ? null : ctx.body.scope,
-    summary: `${actor.name} changed the ${ctx.body.scope === 'central' ? 'central' : scopeLabel(ctx.body.scope)} context: ${summary}`,
-    data: { ...impact, direct: true, applied },
-  });
-
-  for (const n of impact.notify.filter((x) => x.affectsActiveWork)) {
-    await raiseContextAlert(projectId, n.userId, applied, summary, []);
-  }
-  const rest = impact.notify.filter((x) => !x.affectsActiveWork).map((x) => x.userId);
-  // Everyone whose department reads this context hears about it, even with no active work.
-  const people = await listPeople(projectId);
-  const readers = people.filter((p) => (p.isDeveloper || p.isManager) && p.id !== actor.id
-    && (ctx.body.scope === 'central' || p.department === ctx.body.scope)).map((p) => p.id);
-  const alerted = new Set(impact.notify.filter((x) => x.affectsActiveWork).map((x) => x.userId));
-  await notifyMany(projectId, [...new Set([...rest, ...readers])].filter((id) => !alerted.has(id)), {
-    kind: 'context_change', title: `${actor.name} updated the ${ctx.body.scope === 'central' ? 'project brief / central' : scopeLabel(ctx.body.scope)} context`,
-    body: applied.map((a) => `${a.title} v${a.fromVersion} → v${a.toVersion}: ${a.why}`).join('\n'),
-  }, { actorId: actor.id });
-  return { saved: applied.length, applied, impact };
+  const routed = await routeEdits(projectId, actor, changes.map((c) => ({ op: 'update', itemId: c.sectionId, content: c.newContent, why: c.why })));
+  const saved = routed.filter((r) => r.status === 'approved' || r.status === 'applied').reduce((n, r) => n + r.applied.length, 0);
+  return { saved, suggestions: routed.map(({ id, status, label, reasons }) => ({ id, status, label, reasons })) };
 }
 
-// POST /api/team/context/create { projectId, scope, title, content, tags?: [] }
+// POST /api/team/context/create { projectId, scope, title, content, kind?, tags?: [] }
 export async function create(ctx) {
   requireFields(ctx.body, ['scope', 'title', 'content']);
   const { actor, projectId } = await editor(ctx, ctx.body.scope);
@@ -118,18 +93,9 @@ export async function create(ctx) {
   const title = String(ctx.body.title).trim().slice(0, 120);
   const content = String(ctx.body.content).trim();
   if (title.length < 2 || !content) throw new HttpError(400, 'Give the section a title and some content');
+  const kind = KIND_LABEL[ctx.body.kind] ? ctx.body.kind : 'note';
   const tags = (Array.isArray(ctx.body.tags) ? ctx.body.tags : String(ctx.body.tags ?? '').split(','))
     .map((t) => String(t).trim().toLowerCase()).filter(Boolean).slice(0, 20);
-  const existing = await listSections(projectId);
-  const id = `${scope === 'central' ? 'c' : scope.slice(0, 3)}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)}-${Date.now().toString(36).slice(-4)}`;
-  await insertSection(projectId, {
-    id, scope, title, content, why: 'New section', ownerId: actor.id,
-    tags: tags.length ? tags : ['*'], guardrails: [],
-  }, existing.length);
-  await q(db.from('scope_versions').upsert({ project_id: projectId, scope, version: 1 }, { onConflict: 'project_id,scope', ignoreDuplicates: true }));
-  await logEvent(projectId, {
-    type: 'context.created', actorId: actor.id, department: scope === 'central' ? null : scope,
-    summary: `${actor.name} added "${title}" to the ${scope === 'central' ? 'central' : scopeLabel(scope)} context`, data: { sectionId: id },
-  });
-  return { sectionId: id };
+  const [r] = await routeEdits(projectId, actor, [{ op: 'add', scope, kind, title, content, tags: tags.length ? tags : ['*'], why: 'New section' }]);
+  return { sectionId: r.applied[0]?.itemId ?? null, suggestion: { id: r.id, status: r.status, label: r.label, reasons: r.reasons } };
 }

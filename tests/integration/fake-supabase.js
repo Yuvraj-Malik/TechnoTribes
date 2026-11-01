@@ -26,7 +26,7 @@ export function createFakeSupabase() {
     const row = { ...r };
     if (table === 'activity_log') { row.id = ++identity; row.at ??= now; row.data ??= {}; }
     else if (!('id' in row) && !KEYS[table]) row.id = randomUUID();
-    if (['dev_tasks', 'work_submissions', 'context_proposals', 'main_commits', 'notifications', 'project_members'].includes(table)) row.created_at ??= now;
+    if (['dev_tasks', 'work_submissions', 'context_proposals', 'context_suggestions', 'main_commits', 'notifications', 'project_members', 'tasks'].includes(table)) row.created_at ??= now;
     if (table === 'notifications') row.read ??= false;
     if (table === 'project_files') row.updated_at ??= now;
     return row;

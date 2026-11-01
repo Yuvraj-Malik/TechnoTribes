@@ -333,6 +333,7 @@ async function seedLedgerLite(ids, lib) {
   ];
   await must(db.from('activity_log').insert(events.map(([at, type, actor, department, summary, data]) => ({
     project_id: pid, at, type, actor_id: actor, department, summary, data: data ?? {},
+    level: department ? 'department' : 'central',
   }))), 'activity');
 
   await must(db.from('notifications').insert([
@@ -383,7 +384,7 @@ async function seedCampusEats(ids, lib) {
   let campus = await projectByCode('PRJ-EATS2026');
   if (!campus) {
     campus = await createProject(lib, {
-      name: 'CampusEats', description: 'Food ordering for college campuses. Team workspace demo with three departments.',
+      name: 'CampusEats', description: 'Food ordering for college campuses. Team workspace demo with Frontend and Backend departments.',
       ownerId: ids.owner, projectCode: 'PRJ-EATS2026', observerCode: 'OBS-EATS2026',
     });
   }

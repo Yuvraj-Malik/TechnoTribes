@@ -60,8 +60,14 @@ function SectionEditor({ section, scope, editable, onSaved }) {
   const changed = content.trim() !== section.content.trim();
   const runPreview = () => act.run('preview', async () => setPreview(await post('context/preview', { scope, edits })));
   const save = async () => {
-    const r = await act.run('save', () => post('context/save', { scope, edits }), 'Saved. Everyone affected was told.');
-    if (r) { setEditing(false); setPreview(null); setWhy(''); onSaved(); }
+    const r = await act.run('save', () => post('context/save', { scope, edits }));
+    if (!r) return;
+    // Edits go through the change router: some apply now, some wait for the founder.
+    const waiting = r.suggestions.find((x) => x.status === 'pending_founder' || x.status === 'pending_manager');
+    act.setOk(waiting
+      ? `Sent for approval: ${waiting.status === 'pending_founder' ? 'the founder' : 'the department manager'} decides. ${waiting.reasons?.[0] ?? ''}`
+      : 'Saved and logged. Everyone affected was told.');
+    setEditing(false); setPreview(null); setWhy(''); onSaved();
   };
 
   return (
@@ -74,7 +80,10 @@ function SectionEditor({ section, scope, editable, onSaved }) {
         {editable && !editing && <Button variant="secondary" className="min-h-11" onClick={() => setEditing(true)}>Edit</Button>}
       </div>
       {!editing ? (
-        <p className="m-0 mt-2 whitespace-pre-line text-sm leading-relaxed text-ink">{section.content}</p>
+        <>
+          <p className="m-0 mt-2 whitespace-pre-line text-sm leading-relaxed text-ink">{section.content}</p>
+          {act.ok && <div className="mt-2"><Notice ok={act.ok} /></div>}
+        </>
       ) : (
         <div className="mt-3 space-y-3">
           <Notice error={act.error} />

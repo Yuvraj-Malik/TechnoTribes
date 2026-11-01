@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useTeam } from '../../context/TeamContext';
 import { timeAgo } from '../../utils/time';
+import { KIND_LABEL } from '../../constants/statuses';
 import { Avatar, Badge, Button, Card, PanelTitle, cx } from '../common/ui';
 
 export function useContextData() {
@@ -111,28 +112,70 @@ export function ChangedSinceLastVisit({ data }) {
   );
 }
 
-export default function ContextPanel({ taskSectionIds = [] }) {
+const PLAN_ORDER = ['goal', 'must_do', 'must_not', 'decision', 'done', 'note'];
+
+/** One layer (central or department): its plan grouped by kind, then its progress. */
+function Layer({ title, owner, version, tone, layer, used, lastSeenAt, progressLabel }) {
+  const groups = PLAN_ORDER.map((k) => [k, layer.plan.filter((s) => (s.kind ?? 'note') === k)]).filter(([, items]) => items.length);
+  return (
+    <section className="rounded-xl border border-line p-3">
+      <PanelTitle right={<Badge tone={tone}>v{version}</Badge>}>{title}</PanelTitle>
+      <p className="m-0 mb-2 text-[11px] text-dim">Owned by {owner}. Agents read it; changes go through suggestions.</p>
+      <div className="mb-1 text-[11px] font-semibold tracking-wide text-ink uppercase">Plan</div>
+      <div className="space-y-2">
+        {groups.map(([kind, items]) => (
+          <div key={kind}>
+            <div className="mb-1 text-[11px] text-dim">{KIND_LABEL[kind]}</div>
+            <div className="space-y-1.5">{items.map((s) => <SectionRow key={s.id} s={s} usedByTask={used.has(s.id)} lastSeenAt={lastSeenAt} />)}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 mb-1 text-[11px] font-semibold tracking-wide text-ink uppercase">{progressLabel}</div>
+      {layer.progress.length
+        ? <div className="space-y-1.5">{layer.progress.map((s) => <SectionRow key={s.id} s={s} usedByTask={used.has(s.id)} lastSeenAt={lastSeenAt} />)}</div>
+        : <p className="m-0 text-xs text-dim">Nothing yet.</p>}
+    </section>
+  );
+}
+
+/** The agent's own work for its current task: private, nobody else needs it. */
+function AgentLayer({ task, name }) {
+  return (
+    <section className="rounded-xl border border-dashed border-line p-3">
+      <PanelTitle right={<Badge>private</Badge>}>{name}'s agent: own work</PanelTitle>
+      {!task ? <p className="m-0 text-xs text-dim">No task yet.</p> : (
+        <div className="space-y-1.5 text-xs text-ink">
+          <p className="m-0"><span className="text-dim">Task:</span> {task.text}</p>
+          {task.plan && <p className="m-0"><span className="text-dim">Plan:</span> {task.plan.understanding}</p>}
+          {task.changedFiles?.length > 0 && <p className="m-0"><span className="text-dim">Changed:</span> <span className="font-mono">{task.changedFiles.join(', ')}</span></p>}
+          {task.summary && <p className="m-0"><span className="text-dim">Result:</span> {task.summary}</p>}
+          <p className="m-0 text-dim">Only the summary you share reaches the department; this working history stays with you.</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export default function ContextPanel({ task = null }) {
   const data = useContextData();
-  const { dept } = useTeam();
+  const { dept, me, boot, nameOf } = useTeam();
   if (!data) return <div className="text-sm text-dim">Loading context…</div>;
-  const used = new Set(taskSectionIds);
+  const used = new Set(task?.relevantSectionIds ?? []);
+  const founder = boot.people.find((p) => p.role === 'owner');
   return (
     <div className="space-y-4">
       <ChangedSinceLastVisit data={data} />
-      <div>
-        <PanelTitle right={<Badge tone="violet">Central v{data.scopeVersions.central}</Badge>}>Central context</PanelTitle>
-        <div className="space-y-1.5">
-          {data.central.map((s) => <SectionRow key={s.id} s={s} usedByTask={used.has(s.id)} lastSeenAt={data.lastSeenAt} />)}
-        </div>
-      </div>
+      <Layer
+        title="Central context" owner={`the founder${founder ? ` (${founder.name})` : ''}`} version={data.scopeVersions.central} tone="violet"
+        layer={data.layers.central} used={used} lastSeenAt={data.lastSeenAt} progressLabel="Progress: checkpoints"
+      />
       {dept && (
-        <div>
-          <PanelTitle right={<Badge tone="teal">{dept.name} v{data.scopeVersions[dept.id]}</Badge>}>{dept.name} context</PanelTitle>
-          <div className="space-y-1.5">
-            {data.department.map((s) => <SectionRow key={s.id} s={s} usedByTask={used.has(s.id)} lastSeenAt={data.lastSeenAt} />)}
-          </div>
-        </div>
+        <Layer
+          title={`${dept.name} context`} owner={dept.managerId ? `${nameOf(dept.managerId)} (manager)` : 'the department manager'}
+          version={data.scopeVersions[dept.id]} tone="teal" layer={data.layers.department} used={used} lastSeenAt={data.lastSeenAt} progressLabel="Progress: what is built"
+        />
       )}
+      <AgentLayer task={task} name={me.name} />
     </div>
   );
 }
