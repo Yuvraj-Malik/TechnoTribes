@@ -106,8 +106,6 @@ export async function listRequests({ user, query }) {
   let builder = db.from('observer_requests').select('*').eq('project_id', query.projectId);
   if (me.role === 'observer') builder = builder.eq('observer_id', user.id);
   const rows = await q(builder.order('created_at', { ascending: false }));
-  // Progress notes are not rule changes: they appear with the milestones.
-  const ruleEvents = events.filter((e) => e.data?.kind !== 'progress');
   const names = await namesFor(rows.flatMap((r) => [r.observer_id, r.admin_id]));
   return { requests: rows.map((r) => ({ ...r, observerName: names[r.observer_id] || null, adminName: names[r.admin_id] || null })) };
 }

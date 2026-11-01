@@ -132,3 +132,8 @@ test('the observer reads central context and documents, but not team-only contex
 test('the team-only code view stays closed to the observer', async () => {
   await assert.rejects(call('GET', 'team/code', { user: investor }), (e) => e.status === 403 || e.status === 404);
 });
+
+test('the requests list opens for the owner and the observer', async () => {
+  assert.ok(Array.isArray((await call('GET', 'observer/requests')).requests));
+  assert.ok(Array.isArray((await call('GET', 'observer/requests', { user: investor })).requests));
+});
