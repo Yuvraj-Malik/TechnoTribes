@@ -171,6 +171,6 @@ test('editing the central context directly needs a reason and records a new vers
 
 test('the observer feed speaks plain language and carries the live site', async () => {
   const f = await call('GET', 'observer/feed');
-  assert.ok(f.whatChanged.length > 0);
+  assert.ok(f.changes.length > 0 && f.roadmap.length >= 0);
   assert.ok(Object.keys(f.currentSite.files).some((p) => p.endsWith('.html')));
 });

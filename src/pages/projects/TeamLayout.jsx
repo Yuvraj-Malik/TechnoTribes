@@ -38,7 +38,7 @@ function Shell() {
   useShellSection({ title: team.boot.project.name, items: projectTabs(team) });
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <TeamTopBar />
+      {team.me.role !== 'observer' && <TeamTopBar />}
       <div className="min-h-0 flex-1 overflow-auto lg:overflow-hidden">
         <Outlet />
       </div>

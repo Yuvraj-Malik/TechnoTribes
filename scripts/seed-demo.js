@@ -156,7 +156,7 @@ async function seedLedgerLite(ids, lib) {
   await must(db.from('main_commits').insert([
     { project_id: pid, author_id: ids.admin, message: 'Landing page: hero and "Book a free demo"', files: Object.keys(L.MAIN_V1), created_at: h(60) },
     { project_id: pid, author_id: ids.worker, message: "Kabir Singh's \"Features grid with three benefits\"", files: ['web/index.html', 'web/styles.css'], created_at: h(30) },
-    { project_id: pid, author_id: ids.admin, message: 'Pricing page with rupee plans', files: ['web/pricing.html', 'web/styles.css'], created_at: h(9) },
+    { project_id: pid, author_id: ids.worker, message: 'Pricing page with rupee plans', files: ['web/pricing.html', 'web/styles.css'], created_at: h(9) },
   ]), 'commits');
 
   // Every developer has their own workspace, starting from main.
@@ -281,10 +281,37 @@ async function seedLedgerLite(ids, lib) {
     mergeInfo: { conflicted: [] }, createdAt: h(32),
   });
 
+  // The approved work behind Arjun's two merges, so every change has what changed and why.
+  const approvedWork = async ({ userId, title, summary, why, files, at, taskRowId }) => {
+    const tid = devTasks.newId();
+    const sid = workSubmissions.newId();
+    await devTasks.put({
+      id: tid, projectId: pid, userId, userName: name[userId], department: 'website', text: title, status: 'approved',
+      relevantSectionIds: [], conflicts: [], plan: null, summary, whyDraft: why, changedFiles: files, contextAlert: null, builtOn: builtOnOld,
+      messages: [], submissionId: sid, reviewNote: null, resumeStatus: null, assignmentId: taskRowId ?? null, peers: [], createdAt: at, updatedAt: at,
+    });
+    await workSubmissions.put({
+      id: sid, projectId: pid, taskId: tid, userId, userName: name[userId], department: 'website', title, summary, why,
+      diff: '', files, builtOn: builtOnOld, status: 'approved', base: {}, changes: {}, reviewNote: 'Approved.',
+      reviewedBy: ids.owner, reviewedAt: at, mergeInfo: { conflicted: [] }, createdAt: at,
+    });
+    if (taskRowId) await must(db.from('tasks').update({ dev_task_id: tid }).eq('id', taskRowId), 'link approved work');
+  };
+  await approvedWork({
+    userId: ids.admin, title: 'Landing page: hero and "Book a free demo"', files: Object.keys(L.MAIN_V1), at: h(60),
+    summary: 'The first version of the home page: a headline, one line on what LedgerLite does, and a big "Book a free demo" button.',
+    why: 'The goal of the site is demo bookings, so the very first thing visitors see is the way to book one.',
+  });
+  await approvedWork({
+    userId: ids.worker, title: 'Pricing page with rupee plans', files: ['web/pricing.html', 'web/styles.css'], at: h(9), taskRowId: byTitle('Show prices').id,
+    summary: 'A new Pricing page with three plans (Starter free, Growth ₹499, Business ₹1,299 a month), linked from the menu.',
+    why: 'Meera asked for prices in rupees; small business owners in India compare prices before booking a demo.',
+  });
+
   // The story so far (newest last).
   const events = [
-    [h(72), 'context.created', ids.owner, null, 'Priya Sharma added "Audience", "Tone of voice" to the central context'],
-    [h(70), 'context.created', ids.admin, 'website', 'Arjun Mehta set the Website design rules and file structure'],
+    [h(72), 'context.created', ids.owner, null, 'Priya Sharma added "Audience", "Tone of voice" to the central context', { why: 'So every page talks to the right people, in the same voice' }],
+    [h(70), 'context.created', ids.admin, 'website', 'Arjun Mehta set the Website design rules and file structure', { why: 'One look and one way of building pages, so changes from different people fit together' }],
     [h(60), 'review.approved', ids.admin, 'website', 'Arjun Mehta\'s "Landing page: hero and Book a free demo" was approved and merged'],
     [h(40), 'department.created', ids.owner, 'content', 'Department Content created'],
     [h(32), 'task.submitted', ids.worker, 'website', 'Kabir Singh submitted "Features grid with three benefits"'],
@@ -292,8 +319,8 @@ async function seedLedgerLite(ids, lib) {
     [h(30), 'context.changed', ids.owner, null, 'Audience v1 → v2', { title: 'Audience', why: 'Our pilot users are all Indian shops and clinics, mostly on mobile' }],
     [h(14), 'observer.request', ids.observer, null, 'The observer asked: "Please show prices in rupees, not dollars."'],
     [h(13), 'assignment.created', ids.owner, 'website', 'Priya Sharma assigned "Show prices in rupees" to Kabir Singh'],
-    [h(10), 'context.created', ids.owner, null, 'Priya Sharma added "Pricing rules" to the central context'],
-    [h(9), 'review.approved', ids.admin, 'website', 'Arjun Mehta\'s "Pricing page with rupee plans" was approved and merged'],
+    [h(10), 'context.created', ids.owner, null, 'Priya Sharma added "Pricing rules" to the central context', { why: 'Prices must be the same everywhere, and always in rupees' }],
+    [h(9), 'review.approved', ids.worker, 'website', 'Kabir Singh\'s "Pricing page with rupee plans" was approved and merged'],
     [h(8), 'observer.request', ids.observer, null, 'The observer asked: "Can the pricing page say clearly that there is a free trial?"'],
     [h(7), 'assignment.created', ids.admin, 'website', 'Arjun Mehta assigned "Add a 14-day free trial to pricing" to Kabir Singh'],
     [h(6.4), 'context.changed', ids.owner, null, 'Pricing rules v1 → v2', { title: 'Pricing rules', why: 'Meera asked for a clear free trial; sales confirmed it' }],
