@@ -50,6 +50,8 @@ Roles: **owner** (created the project; codes, departments, roles), **admin** (ma
 | GET | `/api/observer/requests` | `observer.listRequests` |
 | POST | `/api/observer/request/respond` | `observer.respond` |
 
+`observer/feed` is plain language only. `api/_lib/observer-summary.js` builds `roadmap` (every piece of work: assigned tasks, work given straight to an agent, and anything else on the live site), `people` (who is doing what, and their next step), `update` (the last day in sentences), `line` (versions and side tracks) and `map` (the site's parts). File paths and agent statuses never leave that file. Only `currentSite` carries files, for the live preview.
+
 ## Notifications
 
 | Method | Path | Handler |
